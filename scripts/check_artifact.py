@@ -23,13 +23,9 @@ EXPECTED_FILES = [
 ]
 
 SENSITIVE_TOKENS = [
-    "Tenghan",
-    "Zhong",
     "BaiduSyncdisk",
     "C:\\Users",
     "D:\\",
-    "26876",
-    "gmail",
     "Overleaf",
     "CIKM_Option",
 ]
@@ -59,8 +55,6 @@ def check_sensitive_tokens() -> list[tuple[str, int, str]]:
         for lineno, line in enumerate(text.splitlines(), start=1):
             lower = line.lower()
             for token in SENSITIVE_TOKENS:
-                if token == "26876" and not re.search(r"(?<![0-9.])26876(?![0-9])", line):
-                    continue
                 if token.lower() in lower:
                     hits.append((str(path.relative_to(ROOT)), lineno, line.strip()))
                     break

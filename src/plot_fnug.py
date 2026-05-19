@@ -57,9 +57,8 @@ METHOD_DIRS = {
     "LSDeltaVega": "A5_hardls_only_1eaa24b3f8",
 }
 
-# Internal labels are the keys below. Display labels are defined separately.
-# This avoids the KeyError caused by mixing "CVaR-HedgeSet" and
-# "CVaR-HedgeSet (scratch)".
+# Internal labels are the keys below. Display labels are defined separately for
+# plot legends.
 MODERN_BASELINES = {
     "IVGrid-HedgeSet": "ivgrid",
     "NTB-LS": "ntb_ls",
@@ -330,7 +329,6 @@ def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
     Optimized Figure 2.
 
     - Uses internal key "CVaR-HedgeSet" and display label "CVaR-HedgeSet (scratch)".
-      This fixes the KeyError in the previous version.
     - Shows a right-tail zoom so FNUG is visible against LSDeltaVega and IVGrid.
     - Draws FNUG last with a white underlay and thick blue line.
     - Marks VaR95 dots and CVaR95 vertical lines for FNUG / LS / IVGrid.

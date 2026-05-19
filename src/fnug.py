@@ -5691,11 +5691,11 @@ def run_multi_seed(
 # =============================================================================
 # Option-Implied Belief-State Deep Hedging Extension
 # =============================================================================
-# This block is deliberately appended to the main SPX risk-state pipeline rather
-# than replacing it.  The existing stages learn the surface-regularized latent
-# option state.  The extension below treats the trained latent state as a frozen
-# option-implied belief state and tests whether it is useful as the Markov input
-# for risk-sensitive hedging under transaction costs.
+# HedgeSet extension using the trained option-state encoder. The existing stages
+# learn the surface-regularized latent option state. The extension below treats
+# the trained latent state as a frozen option-implied belief state and tests
+# whether it is useful as the Markov input for risk-sensitive hedging under
+# transaction costs.
 #
 # Design choices implemented here address the main failure modes in historical
 # option hedging evaluation:
@@ -8905,12 +8905,11 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
 
 
 # -----------------------------------------------------------------------------
-# Modern reviewer-facing HedgeSet baselines
+# Modern HedgeSet baselines
 # -----------------------------------------------------------------------------
-# These are deliberately implemented inside the same HedgeSet evaluation stack so
-# that every baseline shares the exact same historical quote-marked episodes,
-# transaction costs, candidate instruments, validation selection, and paired
-# bootstrap code.
+# These baselines use the same HedgeSet evaluation stack, historical
+# quote-marked episodes, transaction costs, candidate instruments, validation
+# selection, and paired bootstrap code.
 
 
 def _normalize_modern_baseline_names(names: Optional[List[str] | str]) -> List[str]:

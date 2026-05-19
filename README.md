@@ -3,9 +3,9 @@
 This repository contains code and derived outputs for
 **"FNUG: Factor-Neutral Update Gating for Anchored Option Hedging"**.
 
-The repository is prepared for review and artifact checking. It intentionally
-does not include raw SPX option quote data, local cache files, model checkpoints,
-or author-identifying paths.
+It provides scripts, configurations, and derived result files used to reproduce
+the paper figures and reported metrics. It does not include raw SPX option quote
+data, local cache files, model checkpoints, or local machine paths.
 
 ## Contents
 
@@ -17,7 +17,8 @@ or author-identifying paths.
   used by the paper.
 - `results/paper_figures/`: CSV, PDF, and PNG outputs for the paper figures.
 - `data/README.md`: raw data availability and expected file layout.
-- `scripts/check_artifact.py`: lightweight artifact and anonymity check.
+- `scripts/check_artifact.py`: sanity check for required files and local path
+  tokens.
 
 ## Quick Check
 
@@ -27,8 +28,8 @@ From the repository root:
 python scripts/check_artifact.py
 ```
 
-This checks that the expected result files are present and that common local
-identity/path tokens are absent from tracked text files.
+This checks that the expected result files are present and that unexpected local
+path tokens are absent from tracked text files.
 
 ## Reproduce Paper Figures
 
