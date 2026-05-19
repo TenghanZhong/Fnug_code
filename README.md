@@ -25,17 +25,20 @@ data, local cache files, model checkpoints, or local machine paths.
 From the repository root:
 
 ```bash
+pip install -r requirements.txt
 python scripts/check_artifact.py
 ```
 
 This checks that the expected result files are present and that unexpected local
-path tokens are absent from tracked text files.
+path tokens are absent from tracked text files. It also verifies the main
+ATM-call, 2 bps, seed 42 metric row used in the paper.
 
 ## Reproduce Paper Figures
 
 The paper figures can be regenerated from the released derived results:
 
 ```bash
+pip install -r requirements.txt
 python src/plot_fnug.py --input results --outdir results/paper_figures_rebuilt
 ```
 

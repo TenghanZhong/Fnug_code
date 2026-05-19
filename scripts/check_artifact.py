@@ -70,10 +70,10 @@ def check_main_metrics() -> dict[str, str]:
     target = None
     for row in rows:
         if (
-            row.get("model") == "FNUG"
+            row.get("model") in {"FNUG", "HedgeSet-latent"}
             and row.get("family") == "atm_call"
             and row.get("cost_bps") in {"2.0", "2"}
-            and row.get("seed") == "42"
+            and row.get("seed") in {"42", "42.0"}
         ):
             target = row
             break
@@ -107,8 +107,10 @@ def main() -> int:
         print("Metric smoke check:")
         for key, value in metrics.items():
             print(f"  {key}: {value}")
+    else:
+        print("Metric smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
 
-    if missing or sensitive:
+    if missing or sensitive or not metrics:
         return 1
     print("Artifact check passed.")
     return 0
