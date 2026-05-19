@@ -1,0 +1,69 @@
+{
+  "run_name": "A5_hardls_only",
+  "candidate_rules": [
+    "underlying",
+    "atm_call30",
+    "atm_put30",
+    "put25_30",
+    "put10_30",
+    "call25_30",
+    "call10_30",
+    "atm_straddle30",
+    "put25_60",
+    "call25_60",
+    "atm_straddle60"
+  ],
+  "candidate_rules_tag": "1eaa24b3f8",
+  "families": [
+    "atm_call"
+  ],
+  "state_modes": [
+    "latent"
+  ],
+  "cost_bps_list": [
+    2.0
+  ],
+  "seeds": [
+    42
+  ],
+  "policy_variants": [
+    "full"
+  ],
+  "horizon": 5,
+  "stride": 5,
+  "max_instruments": 4,
+  "min_instruments": 3,
+  "lambda_ambiguity": 0.25,
+  "ambiguity_eta": 8.0,
+  "ambiguity_min_count": 2,
+  "regime_bins": 3,
+  "residual_base": "ls_deltavega",
+  "residual_scale": 0.0,
+  "imitation_epochs": 0,
+  "imitation_lambda": 1.0,
+  "finetune_imitation_lambda": 0.02,
+  "lambda_excess_cvar": 0.0,
+  "lambda_excess_relu": 0.0,
+  "lambda_residual_l2": 0.0,
+  "lambda_residual_trade": 0.0,
+  "factor_neutral_residual": true,
+  "factor_neutral_ridge": 0.0001,
+  "lambda_factor_neutral": 0.0,
+  "use_global_trust_gate": true,
+  "trust_gate_init_bias": -2.0,
+  "trust_gate_temp": 1.0,
+  "lambda_trust_l1": 0.0,
+  "lambda_regime_excess_cvar": 0.0,
+  "lambda_aux_risk": 0.0,
+  "val_score_weights": {
+    "cvar95": 1.0,
+    "cvar99": 0.25,
+    "mean": 0.1,
+    "turnover": 0.02,
+    "tc": 0.05,
+    "worst_regime": 0.25,
+    "excess_cvar95": 1.0,
+    "excess_cvar99": 0.25,
+    "excess_relu": 0.5
+  }
+}

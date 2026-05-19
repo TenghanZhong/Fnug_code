@@ -1,0 +1,2 @@
+n_episodes,mean_excess_loss,median_excess_loss,share_fnug_better,share_fnug_worse,share_tie
+133,-0.00222095052048186,-0.0012642024084925998,0.6240601503759399,0.37593984962406013,0.0

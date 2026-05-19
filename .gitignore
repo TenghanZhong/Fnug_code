@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Raw or licensed data
+data/raw/
+*.parquet
+*.pkl
+*.pickle
+
+# Heavy generated artifacts
+cache/
+cache_hedging/
+checkpoints/
+*.pt
+*.pth
+*.rar
+*.zip
+
+# Optional regenerated figures
+results/paper_figures_rebuilt/
+
