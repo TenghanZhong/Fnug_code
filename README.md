@@ -1,7 +1,7 @@
 # FNUG
 
-This repository contains code and derived outputs for the anonymous
-submission **"FNUG: Factor-Neutral Update Gating for Anchored Option Hedging"**.
+This repository contains code and derived outputs for
+**"FNUG: Factor-Neutral Update Gating for Anchored Option Hedging"**.
 
 The repository is prepared for review and artifact checking. It intentionally
 does not include raw SPX option quote data, local cache files, model checkpoints,
@@ -65,9 +65,3 @@ On Windows PowerShell:
 $env:FNUG_DATA_DIR="<path-to-raw-option-data>"
 ```
 
-## Notes for Anonymous Review
-
-- The repository is private while the submission is under review.
-- Do not share a URL tied to a named personal GitHub account with reviewers.
-- Before public release, mirror this repository to an anonymous artifact account
-  or an approved conference artifact mechanism.
