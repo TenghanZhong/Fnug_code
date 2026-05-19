@@ -1,6 +1,6 @@
-# Anonymous Artifact for FNUG
+# FNUG
 
-This private repository contains code and derived outputs for the anonymous
+This repository contains code and derived outputs for the anonymous
 submission **"FNUG: Factor-Neutral Update Gating for Anchored Option Hedging"**.
 
 The repository is prepared for review and artifact checking. It intentionally
