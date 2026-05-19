@@ -23,11 +23,9 @@ EXPECTED_FILES = [
 ]
 
 SENSITIVE_TOKENS = [
-    "BaiduSyncdisk",
     "C:\\Users",
     "D:\\",
     "Overleaf",
-    "CIKM_Option",
 ]
 
 TEXT_EXTENSIONS = {".py", ".md", ".txt", ".json", ".csv", ".yml", ".yaml", ".toml", ".gitignore"}

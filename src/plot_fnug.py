@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Optimized plotting script for FNUG paper Figures 2--5.
+Plotting script for FNUG paper Figures 2--5.
 
 Output filenames are intentionally unchanged:
   figure2_tail_loss_survival.{pdf,png}
@@ -47,7 +47,7 @@ mpl.rcParams.update({
 })
 
 # -----------------------------------------------------------------------------
-# Edit only if your result folder names changed
+# Run directory names
 # -----------------------------------------------------------------------------
 METHOD_DIRS = {
     "FNUG": "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8",
