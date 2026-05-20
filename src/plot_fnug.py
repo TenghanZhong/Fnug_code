@@ -70,7 +70,7 @@ DISPLAY_LABELS = {
     "LSDeltaVega": "LSDeltaVega",
     "IVGrid-HedgeSet": "IVGrid-HedgeSet",
     "NTB-LS": "NTB-LS",
-    "CVaR-HedgeSet": "CVaR-HedgeSet (scratch)",
+    "CVaR-HedgeSet": "CVaR-HedgeSet",
 }
 
 FIG2_ORDER = [
@@ -110,6 +110,20 @@ LINESTYLES = {
     "NTB-LS": ":",
     "CVaR-HedgeSet": "-",
 }
+
+# -----------------------------------------------------------------------------
+# Figure sizing
+# -----------------------------------------------------------------------------
+PANEL_FIGSIZE = (6.4, 4.0)
+PANEL_LABELSIZE = 12.5
+PANEL_TICKSIZE = 10.5
+PANEL_LEGENDSIZE = 8.8
+
+HEATMAP_FIGSIZE = (10.6, 3.45)
+HEATMAP_LABELSIZE = 11.0
+HEATMAP_TICKSIZE = 9.8
+HEATMAP_TITLESIZE = 12.0
+HEATMAP_CELL_FONTSIZE = 9.5
 
 # -----------------------------------------------------------------------------
 # Generic helpers
@@ -326,12 +340,12 @@ def get_static_ls_cvar95(root: Path, liability: str, cost_bps: int) -> float:
 # -----------------------------------------------------------------------------
 def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
     """
-    Optimized Figure 2.
+    Figure 2 tail survival panel.
 
-    - Uses internal key "CVaR-HedgeSet" and display label "CVaR-HedgeSet (scratch)".
-    - Shows a right-tail zoom so FNUG is visible against LSDeltaVega and IVGrid.
+    - Uses paper display labels for all baselines.
+    - Shows a right-tail zoom so FNUG is visible against LSDeltaVega and IVGrid-HedgeSet.
     - Draws FNUG last with a white underlay and thick blue line.
-    - Marks VaR95 dots and CVaR95 vertical lines for FNUG / LS / IVGrid.
+    - Marks VaR95 dots and CVaR95 bottom ticks for FNUG / LSDeltaVega / IVGrid-HedgeSet.
     """
     liability = "atm_call"
     cost_bps = 2
@@ -358,11 +372,11 @@ def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
     ]
 
     widths = {
-        "FNUG": 3.2,
-        "LSDeltaVega": 2.5,
-        "IVGrid-HedgeSet": 2.5,
-        "NTB-LS": 2.3,
-        "CVaR-HedgeSet": 2.0,
+        "FNUG": 2.8,
+        "LSDeltaVega": 2.1,
+        "IVGrid-HedgeSet": 2.1,
+        "NTB-LS": 2.0,
+        "CVaR-HedgeSet": 1.8,
     }
     alphas = {
         "FNUG": 1.0,
@@ -372,7 +386,7 @@ def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
         "CVaR-HedgeSet": 0.65,
     }
 
-    fig, ax = plt.subplots(figsize=(8.8, 5.6))
+    fig, ax = plt.subplots(figsize=PANEL_FIGSIZE, constrained_layout=True)
 
     # Right-tail zoom: this is where CVaR95 differences are visible.
     ax.set_xlim(-0.005, 0.22)
@@ -387,7 +401,7 @@ def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
             ax.step(
                 x, surv,
                 where="post",
-                linewidth=5.2,
+                linewidth=4.2,
                 linestyle="-",
                 color="white",
                 alpha=1.0,
@@ -417,32 +431,44 @@ def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
             zorder=12 if label == "FNUG" else 8,
         )
 
-        # CVaR95 vertical line for the three close competitors.
+        # CVaR95 bottom ticks for the three close competitors.
+        # Short marks avoid cluttering the survival curves.
         if label in {"FNUG", "LSDeltaVega", "IVGrid-HedgeSet"}:
-            ax.axvline(
+            ax.vlines(
                 cvar95,
+                ymin=6.3e-3,
+                ymax=1.05e-2,
                 color=COLORS[label],
                 linestyle=LINESTYLES[label],
-                linewidth=1.6,
-                alpha=0.75,
-                zorder=3,
+                linewidth=2.0 if label == "FNUG" else 1.6,
+                alpha=0.85,
+                zorder=6,
             )
 
-    ax.set_xlabel("Normalized loss")
-    ax.set_ylabel("Tail survival probability")
+    ax.set_xlabel("Normalized loss", fontsize=PANEL_LABELSIZE)
+    ax.set_ylabel("Tail survival probability", fontsize=PANEL_LABELSIZE)
+    ax.tick_params(axis="both", labelsize=PANEL_TICKSIZE)
     ax.grid(True, alpha=0.25, which="both")
 
     ax.text(
         0.003,
         7.3e-3,
-        "dots: 95% VaR\nvertical lines: 95% CVaR",
+        "dots: 95% VaR\nbottom ticks: 95% CVaR",
         fontsize=9,
         ha="left",
         va="bottom",
         bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="none", alpha=0.75),
     )
 
-    ax.legend(frameon=False, loc="upper right", ncol=1)
+    ax.legend(
+        frameon=False,
+        loc="upper right",
+        ncol=1,
+        fontsize=PANEL_LEGENDSIZE,
+        handlelength=1.25,
+        labelspacing=0.18,
+        borderaxespad=0.15,
+    )
 
     save_png_pdf(fig, outdir, "figure2_tail_loss_survival")
     plt.close(fig)
@@ -507,7 +533,7 @@ def make_figure3_paired_excess_vs_ls(root: Path, outdir: Path, sort_mode: str = 
     y = tmp["excess_loss"].to_numpy(dtype=float)
     regcol = "regime_name" if "regime_name" in tmp.columns else (regime_col if regime_col in tmp.columns else None)
 
-    fig, ax = plt.subplots(figsize=(9.4, 5.6))
+    fig, ax = plt.subplots(figsize=PANEL_FIGSIZE, constrained_layout=True)
 
     if regcol is not None:
         reg_series = tmp[regcol].fillna("unknown").astype(str).str.lower()
@@ -517,23 +543,41 @@ def make_figure3_paired_excess_vs_ls(root: Path, outdir: Path, sort_mode: str = 
             m = reg_series == r
             ax.scatter(
                 x[m], y[m],
-                s=22,
-                alpha=0.78,
+                s=20,
+                alpha=0.76,
                 label=r,
                 color=COLORS.get(r, COLORS["unknown"]),
             )
     else:
-        ax.scatter(x, y, s=22, alpha=0.78, label="episodes")
+        ax.scatter(x, y, s=20, alpha=0.76, label="episodes")
 
-    ax.axhline(0.0, color="black", linewidth=2.4, zorder=1)
+    ax.axhline(0.0, color="black", linewidth=1.8, zorder=1)
     if len(tmp) >= 15:
         roll = pd.Series(y).rolling(15, center=True, min_periods=5).mean()
-        ax.plot(x, roll, linewidth=2.2, color="black", linestyle="--", alpha=0.9, label="15-episode mean")
+        ax.plot(
+            x,
+            roll,
+            linewidth=1.8,
+            color="black",
+            linestyle="--",
+            alpha=0.9,
+            label="15-episode mean",
+        )
 
-    ax.set_xlabel("Test episodes sorted by LS loss")
-    ax.set_ylabel(r"Excess loss: FNUG $-$ LSDeltaVega")
+    ax.set_xlabel("Episodes sorted by LSDeltaVega loss", fontsize=PANEL_LABELSIZE)
+    ax.set_ylabel("Excess loss vs. LSDeltaVega", fontsize=PANEL_LABELSIZE)
+    ax.tick_params(axis="both", labelsize=PANEL_TICKSIZE)
     ax.grid(True, alpha=0.25)
-    ax.legend(frameon=False, loc="upper right", ncol=4)
+    ax.legend(
+        frameon=False,
+        loc="upper right",
+        ncol=2,
+        fontsize=PANEL_LEGENDSIZE,
+        handlelength=1.5,
+        columnspacing=0.75,
+        labelspacing=0.22,
+        borderaxespad=0.2,
+    )
 
     ymin, ymax = np.nanmin(y), np.nanmax(y)
     pad = max(0.002, 0.08 * (ymax - ymin))
@@ -602,30 +646,40 @@ def make_figure4_heatmap(root: Path, outdir: Path) -> None:
     vabs = max(vabs, 1e-6)
     norm = TwoSlopeNorm(vmin=-vabs, vcenter=0.0, vmax=vabs)
 
-    fig, axes = plt.subplots(1, 3, figsize=(13.4, 4.15), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=HEATMAP_FIGSIZE, constrained_layout=True)
     im = None
     for ax, (title, _) in zip(axes, LIABILITIES_FOR_HEATMAP):
         mat = mats[title]
         im = ax.imshow(mat, aspect="auto", cmap="RdBu_r", norm=norm)
         ax.set_xticks(np.arange(len(SEEDS_FOR_HEATMAP)))
-        ax.set_xticklabels([str(s) for s in SEEDS_FOR_HEATMAP])
+        ax.set_xticklabels([str(s) for s in SEEDS_FOR_HEATMAP], fontsize=HEATMAP_TICKSIZE)
         ax.set_yticks(np.arange(len(COSTS_FOR_HEATMAP)))
-        ax.set_yticklabels([f"{c} bps" for c in COSTS_FOR_HEATMAP])
-        ax.set_xlabel("Seed")
+        ax.set_yticklabels([f"{c} bps" for c in COSTS_FOR_HEATMAP], fontsize=HEATMAP_TICKSIZE)
+        ax.set_xlabel("Seed", fontsize=HEATMAP_LABELSIZE)
         if ax is axes[0]:
-            ax.set_ylabel("Transaction cost")
-        ax.set_title(title)
+            ax.set_ylabel("Transaction cost", fontsize=HEATMAP_LABELSIZE)
+        ax.set_title(title, fontsize=HEATMAP_TITLESIZE, pad=4)
+        ax.tick_params(axis="both", labelsize=HEATMAP_TICKSIZE)
 
         for i in range(mat.shape[0]):
             for j in range(mat.shape[1]):
                 val = mat[i, j]
                 txt = "NA" if not np.isfinite(val) else f"{val:.4f}"
                 text_color = "white" if np.isfinite(val) and abs(val) > 0.62 * vabs else "black"
-                ax.text(j, i, txt, ha="center", va="center", color=text_color, fontsize=9.6)
+                ax.text(
+                    j,
+                    i,
+                    txt,
+                    ha="center",
+                    va="center",
+                    color=text_color,
+                    fontsize=HEATMAP_CELL_FONTSIZE,
+                )
 
     if im is not None:
-        cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.90)
-        cbar.set_label(r"$\Delta$CVaR$_{95}$ vs. LS")
+        cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.86, pad=0.025)
+        cbar.set_label(r"$\Delta$CVaR$_{95}$ vs. LS", fontsize=HEATMAP_LABELSIZE)
+        cbar.ax.tick_params(labelsize=HEATMAP_TICKSIZE)
 
     save_png_pdf(fig, outdir, "figure4_cost_seed_robustness_heatmap")
     plt.close(fig)
