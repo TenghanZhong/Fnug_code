@@ -8958,8 +8958,6 @@ def _normalize_modern_baseline_names(names: Optional[List[str] | str]) -> List[s
         "qiaoresidual-ls": ["qiao_residual_ls"],
         "plain_residual": ["qiao_residual_ls"],
         "plain_residual_ls": ["qiao_residual_ls"],
-        "anchored_residual": ["qiao_residual_ls"],
-        "anchored_residual_ls": ["qiao_residual_ls"],
     }
     for x in raw:
         key = x.lower().strip().replace(" ", "_")
