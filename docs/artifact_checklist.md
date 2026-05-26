@@ -4,6 +4,7 @@
 
 - Code for FNUG training, evaluation, baselines, and plotting.
 - Run configurations for the main, modern-baseline, and diagnostic runs.
+- QiaoResidual-LS baseline configuration and point-estimate outputs.
 - Derived metric CSVs used by the paper.
 - Paired-bootstrap tables.
 - Figure source CSVs and rendered figure files.

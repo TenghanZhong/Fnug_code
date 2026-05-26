@@ -11,10 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_FILES = [
     "src/fnug.py",
     "src/plot_fnug.py",
+    "configs/qiao_residual_ls.json",
     "results/paper_figures/figure4_heatmap_values.csv",
     "results/hedgeset/fnug_main_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/fnug_main_fam3_cost3_seed3_1eaa24b3f8/hedgeset_pairwise_bootstrap.csv",
     "results/hedgeset/fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_seed_summary.csv",
+    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
+    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/run_config.json",
     "results/hedgeset/A1_no_factorneutral_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/A2_no_trustgate_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/A3_no_regimeexcess_1eaa24b3f8/hedgeset_test_metrics_all.csv",
@@ -23,9 +28,10 @@ EXPECTED_FILES = [
 ]
 
 SENSITIVE_TOKENS = [
-    "C:\\Users",
-    "D:\\",
-    "Overleaf",
+    "C:" + "\\" + "Users",
+    "D:" + "\\",
+    "Bai" + "du",
+    "Over" + "leaf",
 ]
 
 TEXT_EXTENSIONS = {".py", ".md", ".txt", ".json", ".csv", ".yml", ".yaml", ".toml", ".gitignore"}
@@ -84,10 +90,36 @@ def check_main_metrics() -> dict[str, str]:
     }
 
 
+def check_qiao_metrics() -> dict[str, str]:
+    path = ROOT / "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv"
+    if not path.exists():
+        return {}
+    with path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    target = None
+    for row in rows:
+        if (
+            row.get("model") == "QiaoResidual-LS"
+            and row.get("family") == "atm_call"
+            and row.get("cost_bps") in {"2.0", "2"}
+            and row.get("seed") in {"42", "42.0"}
+        ):
+            target = row
+            break
+    if target is None:
+        return {}
+    return {
+        "qiao_atm_call_cost2_seed42_cvar95": f"{float(target['cvar_95']):.4f}",
+        "qiao_atm_call_cost2_seed42_cvar99": f"{float(target['cvar_99']):.4f}",
+        "qiao_atm_call_cost2_seed42_worst_regime": f"{float(target['worst_regime_cvar_95']):.4f}",
+    }
+
+
 def main() -> int:
     missing = check_expected_files()
     sensitive = check_sensitive_tokens()
     metrics = check_main_metrics()
+    qiao_metrics = check_qiao_metrics()
 
     if missing:
         print("Missing expected files:")
@@ -108,7 +140,14 @@ def main() -> int:
     else:
         print("Metric smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
 
-    if missing or sensitive or not metrics:
+    if qiao_metrics:
+        print("QiaoResidual-LS smoke check:")
+        for key, value in qiao_metrics.items():
+            print(f"  {key}: {value}")
+    else:
+        print("QiaoResidual-LS smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
+
+    if missing or sensitive or not metrics or not qiao_metrics:
         return 1
     print("Artifact check passed.")
     return 0

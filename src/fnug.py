@@ -5697,8 +5697,7 @@ def run_multi_seed(
 # whether it is useful as the Markov input for risk-sensitive hedging under
 # transaction costs.
 #
-# Design choices implemented here address the main failure modes in historical
-# option hedging evaluation:
+# Evaluation protocol:
 #   * tradable PnL is marked from observed option quotes, not decoder prices;
 #   * liability episodes are built from exact contract keys, not gridded marks;
 #   * episode paths must remain fully inside train/validation/test splits;
@@ -7106,6 +7105,21 @@ class HedgeSetConfig:
     ntb_ls_lambda_band_l1: float = 0.001
     ntb_ls_use_smooth_gate: bool = True
 
+    # Qiao-style plain anchored residual baseline.
+    # This protocol adaptation keeps the hard LSDeltaVega anchor but removes
+    # FNUG's factor-neutral projection, trust gate, excess-CVaR objective, and
+    # auxiliary risk losses.  It trains by local squared hedging error.
+    qiao_residual_state_mode: str = "latent"
+    qiao_residual_base: str = "ls_deltavega"
+    qiao_residual_scale: float = 0.15
+    qiao_hidden_dim: int = 96
+    qiao_hidden_layers: int = 3
+    qiao_lambda_local_mse: float = 1.0
+    qiao_lambda_residual_l2: float = 0.02
+    qiao_lambda_residual_trade: float = 0.01
+    qiao_lambda_tc: float = 0.0
+    qiao_lambda_turnover: float = 0.0
+
     # Validation selection.  CVaR on a small validation split is noisy, so the
     # best checkpoint is selected by a stable risk score rather than pure CVaR95.
     val_score_cvar95_weight: float = 1.0
@@ -7997,7 +8011,7 @@ class HedgeSetCrossAttentionPolicy(nn.Module):
 
         if residual_enabled:
             r_prev = torch.where(mask, q_prev, torch.zeros_like(q_prev))
-            # Hard residual target.  This is deliberately not multiplied by q_max.
+            # Hard residual target on the configured residual scale.
             r_target = self.residual_scale * torch.tanh(raw[..., 0])
             r_target = torch.where(mask, r_target, torch.zeros_like(r_target))
 
@@ -8921,7 +8935,7 @@ def _normalize_modern_baseline_names(names: Optional[List[str] | str]) -> List[s
         raw = [str(x).strip() for x in names if str(x).strip()]
     out: List[str] = []
     alias = {
-        "all": ["ivgrid", "ntb_ls", "cvar_from_scratch"],
+        "all": ["ivgrid", "ntb_ls", "cvar_from_scratch", "qiao_residual_ls"],
         "surface": ["ivgrid"],
         "iv_surface": ["ivgrid"],
         "ivgrid": ["ivgrid"],
@@ -8936,17 +8950,29 @@ def _normalize_modern_baseline_names(names: Optional[List[str] | str]) -> List[s
         "from_scratch": ["cvar_from_scratch"],
         "cvar_from_scratch": ["cvar_from_scratch"],
         "cvar-hedgeset": ["cvar_from_scratch"],
+        "qiao": ["qiao_residual_ls"],
+        "qiao_residual": ["qiao_residual_ls"],
+        "qiao_residual_ls": ["qiao_residual_ls"],
+        "qiao-residual-ls": ["qiao_residual_ls"],
+        "qiaoresidual_ls": ["qiao_residual_ls"],
+        "qiaoresidual-ls": ["qiao_residual_ls"],
+        "plain_residual": ["qiao_residual_ls"],
+        "plain_residual_ls": ["qiao_residual_ls"],
+        "anchored_residual": ["qiao_residual_ls"],
+        "anchored_residual_ls": ["qiao_residual_ls"],
     }
     for x in raw:
         key = x.lower().strip().replace(" ", "_")
         vals = alias.get(key)
         if vals is None:
-            raise ValueError(f"Unknown modern HedgeSet baseline: {x}. Use ivgrid, ntb_ls, cvar_from_scratch, or all.")
+            raise ValueError(
+                f"Unknown modern HedgeSet baseline: {x}. "
+                "Use ivgrid, ntb_ls, cvar_from_scratch, qiao_residual_ls, or all."
+            )
         for v in vals:
             if v not in out:
                 out.append(v)
     return out
-
 
 class NTBLSAgent(nn.Module):
     """Learned no-transaction-band baseline around LSDeltaVega.
@@ -9316,6 +9342,475 @@ def train_ntb_ls_baseline_one(episodes_path: str, family: str, state_mode: str, 
     return test_metrics, test_panel
 
 
+
+
+class QiaoResidualLSAgent(nn.Module):
+    """Plain anchored residual-learning baseline inspired by Qiao-style residual hedging.
+
+    The action rule is
+        q_t = q_t^0 + r_theta(s_t, H_t),
+    where q_t^0 is the LSDeltaVega anchor and r_theta is a bounded MLP residual.
+
+    This baseline uses no FNUG-specific residual controls:
+      * factor-neutral residual projection,
+      * global trust gate,
+      * excess-CVaR training,
+      * worst-regime excess penalty,
+      * auxiliary dense risk loss.
+
+    Training uses the Qiao-style local squared hedging-error objective generalized
+    to the multi-instrument HedgeSet setting:
+        (Delta L_t - q_t' Delta P_t)^2,
+    evaluated on historical quote-marked paths. Full-episode CVaR is used for
+    validation checkpoint selection and final reporting.
+    """
+    def __init__(self, global_dim: int, inst_dim: int, normalizer: DualFeatureNormalizer, cfg: HedgeSetConfig):
+        super().__init__()
+        self.normalizer = normalizer
+        h = int(getattr(cfg, "qiao_hidden_dim", getattr(cfg, "hidden_dim", 96)))
+        n_layers = max(1, int(getattr(cfg, "qiao_hidden_layers", getattr(cfg, "hidden_layers", 3))))
+        self.global_proj = nn.Sequential(nn.Linear(global_dim, h), nn.GELU(), nn.LayerNorm(h))
+
+        # Per-instrument MLP.  This is a plain residual learner, not a set-attention
+        # controller.  It receives the normalized instrument features, a global
+        # market-state embedding, previous total position, LS base position, and
+        # the base rebalance gap.
+        in_dim = h + inst_dim + 3
+        layers = []
+        cur = in_dim
+        for _ in range(max(1, n_layers - 1)):
+            layers += [nn.Linear(cur, h), nn.GELU(), nn.LayerNorm(h)]
+            cur = h
+        layers.append(nn.Linear(cur, 1))
+        self.residual_net = nn.Sequential(*layers)
+
+        self.q_max = float(getattr(cfg, "q_max", 3.0))
+        self.residual_scale = float(getattr(cfg, "qiao_residual_scale", getattr(cfg, "residual_scale", 0.15)))
+
+    def act(
+        self,
+        global_state_t: torch.Tensor,
+        inst_features_t: torch.Tensor,
+        q_prev: torch.Tensor,
+        q_base_t: torch.Tensor,
+        mask_t: torch.Tensor,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        g = self.normalizer.norm_global(global_state_t)
+        i = self.normalizer.norm_inst(inst_features_t)
+        B, M, _ = i.shape
+        g_h = self.global_proj(g).unsqueeze(1).expand(-1, M, -1)
+        q_prev_s = (q_prev / max(self.q_max, 1e-6)).unsqueeze(-1)
+        q_base_s = (q_base_t / max(self.q_max, 1e-6)).unsqueeze(-1)
+        gap_s = ((q_base_t - q_prev) / max(self.q_max, 1e-6)).unsqueeze(-1)
+        x = torch.cat([g_h, i, q_prev_s, q_base_s, gap_s], dim=-1)
+        residual_target = self.residual_scale * torch.tanh(self.residual_net(x).squeeze(-1))
+        residual_target = torch.where(mask_t, residual_target, torch.zeros_like(residual_target))
+        q_new = torch.clamp(q_base_t + residual_target, -self.q_max, self.q_max)
+        q_new = torch.where(mask_t, q_new, torch.zeros_like(q_new))
+        # Diagnostics and residual penalties should reflect the actually applied
+        # residual after position clipping, not the pre-clipping target.
+        residual_applied = torch.where(mask_t, q_new - q_base_t, torch.zeros_like(q_new))
+        return q_new, {"residual": residual_applied, "residual_target": residual_target, "q_base": q_base_t}
+
+
+def _rollout_qiao_residual_ls(
+    agent: QiaoResidualLSAgent,
+    batch: dict,
+    cfg: HedgeSetConfig,
+    cost_bps: float,
+) -> Dict[str, torch.Tensor]:
+    G = batch["global_state"]
+    IF = batch["inst_features"]
+    P = batch["inst_price"]
+    HS = batch["inst_half_spread"]
+    mask = batch["inst_mask"]
+    action_scope = str(getattr(cfg, "current_action_scope", "full")).lower().strip()
+    if action_scope in {"underlying", "uonly", "underlying_only", "u_only"}:
+        mask = mask.clone()
+        if mask.shape[-1] > 1:
+            mask[:, :, 1:] = False
+
+    L = batch["L"]
+    scale = batch["scale"].clamp(min=1.0)
+    B, H, M = mask.shape
+    device = G.device
+
+    q_prev = torch.zeros(B, M, device=device)
+    q_base_prev = torch.zeros(B, M, device=device)
+    r_prev = torch.zeros(B, M, device=device)
+
+    pnl = torch.zeros(B, device=device)
+    tc_total = torch.zeros(B, device=device)
+    turnover = torch.zeros(B, device=device)
+    pos_l2 = torch.zeros(B, device=device)
+
+    base_pnl = torch.zeros(B, device=device)
+    base_tc_total = torch.zeros(B, device=device)
+    base_turnover = torch.zeros(B, device=device)
+
+    local_sq = torch.zeros(B, device=device)
+    residual_l2 = torch.zeros(B, device=device)
+    residual_turnover = torch.zeros(B, device=device)
+    residual_delta_exposure = torch.zeros(B, device=device)
+    residual_vega_exposure = torch.zeros(B, device=device)
+    residual_factor_l2 = torch.zeros(B, device=device)
+
+    q_hist, q_base_hist, r_hist = [], [], []
+    base_name = str(getattr(cfg, "qiao_residual_base", "ls_deltavega")).lower().strip() or "ls_deltavega"
+
+    for t in range(H):
+        mask_t = mask[:, t, :]
+        q_base = _hs_base_target(batch, t, q_base_prev, cfg, base_name=base_name)
+        q_base = torch.where(mask_t, q_base, torch.zeros_like(q_base))
+        q_new, aux = agent.act(G[:, t, :], IF[:, t, :, :], q_prev, q_base, mask_t)
+        q_new = torch.where(mask_t, q_new, torch.zeros_like(q_new))
+        r_new = torch.where(mask_t, aux["residual"], torch.zeros_like(q_prev))
+
+        dP = P[:, t + 1, :] - P[:, t, :]
+        dL = L[:, t + 1] - L[:, t]
+
+        # Qiao-style local squared hedging error. Transaction costs are charged
+        # in the rollout and final evaluation.
+        local_err = dL - (q_new * dP).sum(dim=1)
+        local_sq = local_sq + (local_err / scale).pow(2)
+
+        dq = q_new - q_prev
+        prop_cost = (float(cost_bps) / 10000.0) * P[:, t, :] * torch.abs(dq)
+        spread_cost = HS[:, t, :] * torch.abs(dq)
+        tc = torch.where(mask_t, prop_cost + spread_cost, torch.zeros_like(prop_cost)).sum(dim=1)
+        pnl = pnl + (q_new * dP).sum(dim=1) - dL - tc
+        tc_total = tc_total + tc
+        turnover = turnover + torch.abs(dq).sum(dim=1)
+        pos_l2 = pos_l2 + (q_new ** 2).sum(dim=1)
+
+        # Standalone LS-base PnL for excess-loss diagnostics.
+        dq_base = q_base - q_base_prev
+        prop_cost_b = (float(cost_bps) / 10000.0) * P[:, t, :] * torch.abs(dq_base)
+        spread_cost_b = HS[:, t, :] * torch.abs(dq_base)
+        tc_b = torch.where(mask_t, prop_cost_b + spread_cost_b, torch.zeros_like(prop_cost_b)).sum(dim=1)
+        base_pnl = base_pnl + (q_base * dP).sum(dim=1) - dL - tc_b
+        base_tc_total = base_tc_total + tc_b
+        base_turnover = base_turnover + torch.abs(dq_base).sum(dim=1)
+
+        residual_l2 = residual_l2 + (r_new ** 2).sum(dim=1)
+        residual_turnover = residual_turnover + torch.abs(r_new - r_prev).sum(dim=1)
+
+        delta_inst = batch["inst_delta"][:, t, :].to(device=device, dtype=r_new.dtype)
+        vega_inst = batch["inst_vega"][:, t, :].to(device=device, dtype=r_new.dtype) / max(float(getattr(cfg, "ls_vega_scale", 100.0)), 1e-6)
+        rd = torch.abs((r_new * delta_inst).sum(dim=1))
+        rv = torch.abs((r_new * vega_inst).sum(dim=1))
+        residual_delta_exposure = residual_delta_exposure + rd
+        residual_vega_exposure = residual_vega_exposure + rv
+        residual_factor_l2 = residual_factor_l2 + rd.pow(2) + rv.pow(2)
+
+        q_prev = q_new
+        q_base_prev = q_base
+        r_prev = r_new
+        q_hist.append(q_new)
+        q_base_hist.append(q_base)
+        r_hist.append(r_new)
+
+    if cfg.terminal_liquidation:
+        mask_last = mask[:, -1, :]
+        prop_close = (float(cost_bps) / 10000.0) * P[:, -1, :] * torch.abs(q_prev)
+        spread_close = HS[:, -1, :] * torch.abs(q_prev)
+        tc_close = torch.where(mask_last, prop_close + spread_close, torch.zeros_like(prop_close)).sum(dim=1)
+        pnl = pnl - tc_close
+        tc_total = tc_total + tc_close
+        turnover = turnover + torch.abs(q_prev).sum(dim=1)
+
+        prop_close_b = (float(cost_bps) / 10000.0) * P[:, -1, :] * torch.abs(q_base_prev)
+        spread_close_b = HS[:, -1, :] * torch.abs(q_base_prev)
+        tc_close_b = torch.where(mask_last, prop_close_b + spread_close_b, torch.zeros_like(prop_close_b)).sum(dim=1)
+        base_pnl = base_pnl - tc_close_b
+        base_tc_total = base_tc_total + tc_close_b
+        base_turnover = base_turnover + torch.abs(q_base_prev).sum(dim=1)
+
+    loss_raw = -pnl
+    loss_norm = loss_raw / scale
+    base_loss_raw = -base_pnl
+    base_loss_norm = base_loss_raw / scale
+    excess_loss_norm = loss_norm - base_loss_norm.detach()
+
+    q_stack = torch.stack(q_hist, dim=1) if q_hist else torch.zeros(B, H, M, device=device)
+    qb_stack = torch.stack(q_base_hist, dim=1) if q_base_hist else torch.zeros(B, H, M, device=device)
+    r_stack = torch.stack(r_hist, dim=1) if r_hist else torch.zeros(B, H, M, device=device)
+
+    return {
+        "loss_raw": loss_raw,
+        "loss_norm": loss_norm,
+        "pnl_raw": pnl,
+        "tc_norm": tc_total / scale,
+        "turnover": turnover,
+        "pos_l2": pos_l2 / max(float(H), 1.0),
+        "q_hist": q_stack,
+        "q_base_hist": qb_stack,
+        "residual_hist": r_stack,
+        "base_loss_raw": base_loss_raw.detach(),
+        "base_loss_norm": base_loss_norm.detach(),
+        "base_pnl_raw": base_pnl.detach(),
+        "base_tc_norm": (base_tc_total / scale).detach(),
+        "base_turnover": base_turnover.detach(),
+        "excess_loss_norm": excess_loss_norm,
+        "excess_relu": torch.relu(excess_loss_norm),
+        "local_mse": local_sq / max(float(H), 1.0),
+        "residual_l2": residual_l2 / max(float(H), 1.0),
+        "residual_turnover": residual_turnover,
+        "residual_delta_exposure": residual_delta_exposure / max(float(H), 1.0),
+        "residual_vega_exposure": residual_vega_exposure / max(float(H), 1.0),
+        "residual_factor_l2": residual_factor_l2 / max(float(H), 1.0),
+        "inst_mask_used": mask,
+    }
+
+
+def qiao_residual_ls_training_loss(agent: QiaoResidualLSAgent, batch: dict, cfg: HedgeSetConfig, cost_bps: float) -> Tuple[torch.Tensor, dict]:
+    out = _rollout_qiao_residual_ls(agent, batch, cfg, cost_bps)
+    local_mse = out["local_mse"].mean()
+    residual_l2 = out["residual_l2"].mean()
+    residual_trade = out["residual_turnover"].mean()
+    tc_pen = out["tc_norm"].mean()
+    turn_pen = out["turnover"].mean()
+    total = (
+        float(getattr(cfg, "qiao_lambda_local_mse", 1.0)) * local_mse
+        + float(getattr(cfg, "qiao_lambda_residual_l2", 0.02)) * residual_l2
+        + float(getattr(cfg, "qiao_lambda_residual_trade", 0.01)) * residual_trade
+        + float(getattr(cfg, "qiao_lambda_tc", 0.0)) * tc_pen
+        + float(getattr(cfg, "qiao_lambda_turnover", 0.0)) * turn_pen
+    )
+    return total, {
+        "total": float(total.detach().cpu()),
+        "local_mse": float(local_mse.detach().cpu()),
+        "residual_l2": float(residual_l2.detach().cpu()),
+        "residual_turnover": float(residual_trade.detach().cpu()),
+        "tc": float(tc_pen.detach().cpu()),
+        "turnover": float(turn_pen.detach().cpu()),
+    }
+
+
+def _qiao_residual_ls_validation_score(metrics: dict, cfg: HedgeSetConfig) -> float:
+    """Validation selection score for the plain Qiao-style residual baseline.
+
+    Unlike FNUG, this baseline is not selected using excess-risk, trust, or
+    factor-neutral metrics.  This keeps the comparator a plain anchored residual
+    learner while still using validation-only episode risk to select checkpoints.
+    """
+    c95 = float(metrics.get("cvar_95", np.inf))
+    c99 = float(metrics.get("cvar_99", c95))
+    mean = float(metrics.get("mean_loss_norm", 0.0))
+    turnover = float(metrics.get("mean_turnover", 0.0))
+    tc = float(metrics.get("mean_tc_norm", 0.0))
+    return (
+        float(getattr(cfg, "val_score_cvar95_weight", 1.0)) * c95
+        + float(getattr(cfg, "val_score_cvar99_weight", 0.25)) * c99
+        + float(getattr(cfg, "val_score_mean_weight", 0.10)) * mean
+        + float(getattr(cfg, "val_score_turnover_weight", 0.02)) * turnover
+        + float(getattr(cfg, "val_score_tc_weight", 0.05)) * tc
+    )
+
+
+@torch.no_grad()
+def evaluate_qiao_residual_ls_agent(agent: QiaoResidualLSAgent, loader: DataLoader, cfg: HedgeSetConfig, cost_bps: float,
+                                    model_label: str, family: str, state_mode: str) -> Tuple[dict, pd.DataFrame]:
+    agent.eval()
+    device = next(agent.parameters()).device
+    rows = []
+    for batch in loader:
+        batch_t = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
+        out = _rollout_qiao_residual_ls(agent, batch_t, cfg, cost_bps)
+        ln = out["loss_norm"].detach().cpu().numpy()
+        pr = out["pnl_raw"].detach().cpu().numpy()
+        tc = out["tc_norm"].detach().cpu().numpy()
+        to = out["turnover"].detach().cpu().numpy()
+        base_ln = out["base_loss_norm"].detach().cpu().numpy()
+        excess_ln = out["excess_loss_norm"].detach().cpu().numpy()
+        resid_l2 = out["residual_l2"].detach().cpu().numpy()
+        resid_turn = out["residual_turnover"].detach().cpu().numpy()
+        resid_delta = out["residual_delta_exposure"].detach().cpu().numpy()
+        resid_vega = out["residual_vega_exposure"].detach().cpu().numpy()
+        resid_factor = out["residual_factor_l2"].detach().cpu().numpy()
+        local_mse = out["local_mse"].detach().cpu().numpy()
+        q_np = out["q_hist"].detach().abs().cpu().numpy()
+        mask_np = out.get("inst_mask_used", batch_t["inst_mask"]).detach().cpu().numpy().astype(bool)
+        denom = np.maximum(mask_np.sum(axis=(1, 2)), 1)
+        q_abs = (q_np * mask_np).sum(axis=(1, 2)) / denom
+        q_nonzero = ((q_np > 1e-4) & mask_np).sum(axis=(1, 2)) / denom
+        for i in range(len(ln)):
+            rows.append({
+                "model": model_label,
+                "family": family,
+                "state_mode": state_mode,
+                "cost_bps": cost_bps,
+                "start_date": batch["start_date"][i],
+                "loss_norm": float(ln[i]),
+                "pnl_raw": float(pr[i]),
+                "tc_norm": float(tc[i]),
+                "turnover": float(to[i]),
+                "base_loss_norm": float(base_ln[i]),
+                "excess_loss_norm": float(excess_ln[i]),
+                "relu_excess_loss_norm": float(max(excess_ln[i], 0.0)) if np.isfinite(excess_ln[i]) else np.nan,
+                "local_mse": float(local_mse[i]),
+                "residual_l2": float(resid_l2[i]),
+                "residual_turnover": float(resid_turn[i]),
+                "residual_delta_exposure": float(resid_delta[i]),
+                "residual_vega_exposure": float(resid_vega[i]),
+                "residual_factor_l2": float(resid_factor[i]),
+                "global_trust_mean": np.nan,
+                "mean_abs_position": float(q_abs[i]),
+                "nonzero_position_rate": float(q_nonzero[i]),
+                "n_instruments": int(len(batch["inst_names"][i])),
+                "instrument_names": ";".join(batch["inst_names"][i]),
+                "regime_id": int(batch["regime_id"][i].detach().cpu().item()) if "regime_id" in batch_t else -1,
+                "regime_score": float(batch["regime_score"][i].detach().cpu().item()) if "regime_score" in batch_t else np.nan,
+                "regime_name": str(batch.get("regime_name", ["unassigned"] * len(ln))[i]) if isinstance(batch.get("regime_name", None), list) else "unassigned",
+                "seed": getattr(cfg, "current_seed", np.nan),
+                "policy_variant": "qiao_residual_ls",
+                "candidate_run": getattr(cfg, "run_name", "main"),
+                "candidate_rules_tag": getattr(cfg, "candidate_rules_tag", ""),
+                "action_scope": getattr(cfg, "current_action_scope", "full"),
+                "residual_base": getattr(cfg, "qiao_residual_base", "ls_deltavega"),
+                "residual_scale": getattr(cfg, "qiao_residual_scale", getattr(cfg, "residual_scale", np.nan)),
+                "imitation_epochs": 0,
+            })
+    panel = pd.DataFrame(rows)
+    metrics = summarize_hedgeset_panel(
+        panel["loss_norm"].values,
+        panel["pnl_raw"].values,
+        panel["tc_norm"].values,
+        panel["turnover"].values,
+        panel["mean_abs_position"].values,
+        base_loss_norm=panel["base_loss_norm"].values if "base_loss_norm" in panel.columns else None,
+        excess_loss_norm=panel["excess_loss_norm"].values if "excess_loss_norm" in panel.columns else None,
+        residual_l2=panel["residual_l2"].values if "residual_l2" in panel.columns else None,
+        residual_turnover=panel["residual_turnover"].values if "residual_turnover" in panel.columns else None,
+        residual_delta_exposure=panel["residual_delta_exposure"].values if "residual_delta_exposure" in panel.columns else None,
+        residual_vega_exposure=panel["residual_vega_exposure"].values if "residual_vega_exposure" in panel.columns else None,
+        residual_factor_l2=panel["residual_factor_l2"].values if "residual_factor_l2" in panel.columns else None,
+        global_trust_mean=None,
+    )
+    if "local_mse" in panel.columns:
+        metrics["mean_local_mse"] = float(np.nanmean(panel["local_mse"].values))
+    if "regime_id" in panel.columns and len(panel) > 0:
+        reg_cvars, reg_shortfalls, reg_ex_cvars = [], [], []
+        for rid, g in panel.groupby("regime_id", dropna=False):
+            vals = pd.to_numeric(g["loss_norm"], errors="coerce").dropna().values
+            if vals.size == 0:
+                continue
+            q95 = np.nanquantile(vals, 0.95)
+            reg_cvars.append(float(np.nanmean(vals[vals >= q95])))
+            reg_shortfalls.append(float(np.nanmean(vals > 0.0)))
+            ex_vals = pd.to_numeric(g["excess_loss_norm"], errors="coerce").dropna().values
+            if ex_vals.size > 0:
+                qex = np.nanquantile(ex_vals, 0.95)
+                reg_ex_cvars.append(float(np.nanmean(ex_vals[ex_vals >= qex])))
+        if reg_cvars:
+            metrics["worst_regime_cvar_95"] = float(np.nanmax(reg_cvars))
+            metrics["worst_regime_shortfall_prob"] = float(np.nanmax(reg_shortfalls)) if reg_shortfalls else np.nan
+        if reg_ex_cvars:
+            metrics["worst_regime_excess_cvar_95"] = float(np.nanmax(reg_ex_cvars))
+    metrics.update({
+        "model": model_label,
+        "family": family,
+        "state_mode": state_mode,
+        "cost_bps": cost_bps,
+        "seed": getattr(cfg, "current_seed", np.nan),
+        "policy_variant": "qiao_residual_ls",
+        "candidate_run": getattr(cfg, "run_name", "main"),
+        "candidate_rules_tag": getattr(cfg, "candidate_rules_tag", ""),
+        "action_scope": getattr(cfg, "current_action_scope", "full"),
+        "residual_base": getattr(cfg, "qiao_residual_base", "ls_deltavega"),
+        "residual_scale": getattr(cfg, "qiao_residual_scale", getattr(cfg, "residual_scale", np.nan)),
+        "imitation_epochs": 0,
+        "factor_neutral_residual": False,
+        "use_global_trust_gate": False,
+        "lambda_regime_excess_cvar": 0.0,
+        "lambda_aux_risk": 0.0,
+    })
+    return metrics, panel
+
+
+def train_qiao_residual_ls_baseline_one(
+    episodes_path: str,
+    family: str,
+    state_mode: str,
+    cost_bps: float,
+    cfg: HedgeSetConfig,
+    out_dir: str,
+    seed: int = 42,
+    action_scope: str = "full",
+    candidate_run: Optional[str] = None,
+    rules_tag: Optional[str] = None,
+) -> Tuple[dict, pd.DataFrame]:
+    os.makedirs(out_dir, exist_ok=True)
+    set_seed(seed)
+    cfg.current_seed = int(seed)
+    cfg.current_policy_variant = "qiao_residual_ls"
+    cfg.current_action_scope = str(action_scope).lower().strip()
+    if candidate_run is not None:
+        cfg.run_name = str(candidate_run)
+    if rules_tag is not None:
+        cfg.candidate_rules_tag = str(rules_tag)
+    device = torch.device(TRAIN_CFG.device if torch.cuda.is_available() else "cpu")
+    train_ds = HedgeSetEpisodeDataset(episodes_path, "train", state_mode)
+    val_ds = HedgeSetEpisodeDataset(episodes_path, "val", state_mode)
+    test_ds = HedgeSetEpisodeDataset(episodes_path, "test", state_mode)
+    train_ld = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True, collate_fn=hedgeset_collate_fn, drop_last=False)
+    val_ld = DataLoader(val_ds, batch_size=cfg.batch_size, shuffle=False, collate_fn=hedgeset_collate_fn)
+    test_ld = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=False, collate_fn=hedgeset_collate_fn)
+    normer = fit_hedgeset_normalizer(train_ds, device)
+    global_dim = train_ds[0]["global_state"].shape[-1]
+    inst_dim = train_ds[0]["inst_features"].shape[-1]
+    agent = QiaoResidualLSAgent(global_dim, inst_dim, normer, cfg).to(device)
+    opt = torch.optim.AdamW(agent.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(cfg.epochs, 1), eta_min=cfg.lr * 0.05)
+    best_val = float("inf")
+    best_state = None
+    bad_epochs = 0
+    history = []
+    for epoch in range(cfg.epochs):
+        agent.train()
+        acc = {"total": 0.0, "local_mse": 0.0, "residual_l2": 0.0, "residual_turnover": 0.0, "tc": 0.0, "turnover": 0.0}
+        n_batches = 0
+        for batch in train_ld:
+            batch = {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
+            opt.zero_grad(set_to_none=True)
+            loss, info = qiao_residual_ls_training_loss(agent, batch, cfg, cost_bps)
+            loss.backward()
+            nn.utils.clip_grad_norm_(agent.parameters(), 1.0)
+            opt.step()
+            for k in acc:
+                acc[k] += info.get(k, 0.0)
+            n_batches += 1
+        scheduler.step()
+        for k in acc:
+            acc[k] /= max(n_batches, 1)
+        agent.eval()
+        val_metrics, _ = evaluate_qiao_residual_ls_agent(agent, val_ld, cfg, cost_bps, "QiaoResidual-LS", family, state_mode)
+        val_score = _qiao_residual_ls_validation_score(val_metrics, cfg)
+        row = {"epoch": epoch + 1, "lr": opt.param_groups[0]["lr"], **{f"train_{k}": v for k, v in acc.items()}, **{f"val_{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))}, "val_selection_score": val_score}
+        history.append(row)
+        if (epoch + 1) % 25 == 0 or epoch == 0:
+            logger.info(
+                f"[qiao-residual-ls {family}/{state_mode}/cost={cost_bps:g} ep {epoch+1:03d}] "
+                f"train_local_mse={acc['local_mse']:.4f} val_score={val_score:.4f} val_cvar95={val_metrics.get('cvar_95', np.nan):.4f}"
+            )
+        if val_score < best_val - cfg.min_delta:
+            best_val = val_score
+            best_state = copy.deepcopy(agent.state_dict())
+            bad_epochs = 0
+            torch.save({"agent": best_state, "epoch": epoch + 1, "best_val_score": best_val, "best_val_metrics": val_metrics}, os.path.join(out_dir, "best_policy.pt"))
+        else:
+            bad_epochs += 1
+            if bad_epochs >= cfg.patience:
+                logger.info(f"Early stopping QiaoResidual-LS baseline at epoch {epoch+1}; best validation score={best_val:.6f}")
+                break
+    if best_state is not None:
+        agent.load_state_dict(best_state)
+    pd.DataFrame(history).to_csv(os.path.join(out_dir, "training_history.csv"), index=False)
+    test_metrics, test_panel = evaluate_qiao_residual_ls_agent(agent, test_ld, cfg, cost_bps, "QiaoResidual-LS", family, state_mode)
+    test_panel.to_csv(os.path.join(out_dir, "test_episode_panel.csv"), index=False)
+    pd.DataFrame([test_metrics]).to_csv(os.path.join(out_dir, "test_metrics.csv"), index=False)
+    return test_metrics, test_panel
+
 def run_hedgeset_modern_baselines(
     episodes_path: str,
     family: str,
@@ -9340,10 +9835,32 @@ def run_hedgeset_modern_baselines(
                     cfg_iv = _apply_hedgeset_policy_variant(cfg, "full")
                     cfg_iv.model_label_override = "IVGrid-HedgeSet"
                     out_dir = os.path.join(cfg.results_dir, family, f"cost_{cost_bps:g}bps", "modern_baselines", "ivgrid", f"scope_{scope}", f"seed_{sd}")
-                    m, p = train_hedgeset_policy_one(episodes_path, family, mode, cost_bps, cfg_iv, out_dir, seed=int(sd), policy_variant="ivgrid", action_scope=scope, candidate_run=cfg.run_name, rules_tag=cfg.candidate_rules_tag)
+                    m, p = train_hedgeset_policy_one(episodes_path, family, mode, cost_bps, cfg_iv, out_dir, seed=int(sd), policy_variant="ivgrid", action_scope=scope, candidate_run=getattr(cfg, "run_name", "main"), rules_tag=getattr(cfg, "candidate_rules_tag", ""))
                     metrics.append(m); panels.append(p)
                 except Exception as exc:
                     logger.warning(f"Skipping IVGrid-HedgeSet baseline for family={family}: {exc}")
+            if "qiao_residual_ls" in names:
+                mode = str(getattr(cfg, "qiao_residual_state_mode", "latent"))
+                try:
+                    _ = HedgeSetEpisodeDataset(episodes_path, "train", mode)
+                    cfg_qiao = copy.deepcopy(cfg)
+                    cfg_qiao.current_policy_variant = "qiao_residual_ls"
+                    cfg_qiao.qiao_residual_base = str(getattr(cfg, "qiao_residual_base", "ls_deltavega"))
+                    cfg_qiao.factor_neutral_residual = False
+                    cfg_qiao.use_global_trust_gate = False
+                    cfg_qiao.lambda_factor_neutral = 0.0
+                    cfg_qiao.lambda_trust_l1 = 0.0
+                    cfg_qiao.lambda_aux_risk = 0.0
+                    cfg_qiao.lambda_regime_excess_cvar = 0.0
+                    cfg_qiao.lambda_excess_cvar = 0.0
+                    cfg_qiao.lambda_excess_relu = 0.0
+                    cfg_qiao.imitation_epochs = 0
+                    cfg_qiao.finetune_imitation_lambda = 0.0
+                    out_dir = os.path.join(cfg.results_dir, family, f"cost_{cost_bps:g}bps", "modern_baselines", "qiao_residual_ls", f"scope_{scope}", f"seed_{sd}")
+                    m, p = train_qiao_residual_ls_baseline_one(episodes_path, family, mode, cost_bps, cfg_qiao, out_dir, seed=int(sd), action_scope=scope, candidate_run=getattr(cfg, "run_name", "main"), rules_tag=getattr(cfg, "candidate_rules_tag", ""))
+                    metrics.append(m); panels.append(p)
+                except Exception as exc:
+                    logger.warning(f"Skipping QiaoResidual-LS baseline for family={family}: {exc}")
             if "ntb_ls" in names:
                 mode = str(getattr(cfg, "ntb_ls_state_mode", "summary"))
                 try:
@@ -9358,7 +9875,7 @@ def run_hedgeset_modern_baselines(
                     cfg_ntb.lambda_aux_risk = 0.0
                     cfg_ntb.imitation_epochs = 0
                     out_dir = os.path.join(cfg.results_dir, family, f"cost_{cost_bps:g}bps", "modern_baselines", "ntb_ls", f"scope_{scope}", f"seed_{sd}")
-                    m, p = train_ntb_ls_baseline_one(episodes_path, family, mode, cost_bps, cfg_ntb, out_dir, seed=int(sd), action_scope=scope, candidate_run=cfg.run_name, rules_tag=cfg.candidate_rules_tag)
+                    m, p = train_ntb_ls_baseline_one(episodes_path, family, mode, cost_bps, cfg_ntb, out_dir, seed=int(sd), action_scope=scope, candidate_run=getattr(cfg, "run_name", "main"), rules_tag=getattr(cfg, "candidate_rules_tag", ""))
                     metrics.append(m); panels.append(p)
                 except Exception as exc:
                     logger.warning(f"Skipping NTB-LS baseline for family={family}: {exc}")
@@ -9391,12 +9908,11 @@ def run_hedgeset_modern_baselines(
                     cfg_cv.val_score_factor_weight = 0.0
                     cfg_cv.val_score_trust_weight = 0.0
                     out_dir = os.path.join(cfg.results_dir, family, f"cost_{cost_bps:g}bps", "modern_baselines", "cvar_from_scratch", f"scope_{scope}", f"seed_{sd}")
-                    m, p = train_hedgeset_policy_one(episodes_path, family, mode, cost_bps, cfg_cv, out_dir, seed=int(sd), policy_variant="cvar_from_scratch", action_scope=scope, candidate_run=cfg.run_name, rules_tag=cfg.candidate_rules_tag)
+                    m, p = train_hedgeset_policy_one(episodes_path, family, mode, cost_bps, cfg_cv, out_dir, seed=int(sd), policy_variant="cvar_from_scratch", action_scope=scope, candidate_run=getattr(cfg, "run_name", "main"), rules_tag=getattr(cfg, "candidate_rules_tag", ""))
                     metrics.append(m); panels.append(p)
                 except Exception as exc:
                     logger.warning(f"Skipping CVaR-HedgeSet-from-scratch baseline for family={family}: {exc}")
     return metrics, panels
-
 
 def _select_no_trade_delta_band(episodes_path: str, state_mode_for_loader: str, cost_bps: float, cfg: HedgeSetConfig) -> float:
     """Select the no-trade delta threshold on the validation split by CVaR95."""
@@ -9548,6 +10064,7 @@ def _hedgeset_seed_summary(metrics_df: pd.DataFrame) -> pd.DataFrame:
         "mean_abs_residual_delta_exposure", "mean_abs_residual_vega_exposure", "mean_residual_factor_l2",
         "mean_global_trust", "q95_global_trust",
         "mean_ntb_band", "mean_ntb_gate",
+        "mean_local_mse",
         "mean_tc_norm", "mean_turnover", "mean_abs_position"
     ] if c in dyn.columns]
     rows = []
@@ -9616,6 +10133,11 @@ def run_hedgeset_pipeline(
     cvar_from_scratch_state_mode: str = "latent",
     ntb_band_max: Optional[float] = None,
     ntb_lambda_band_l1: Optional[float] = None,
+    qiao_state_mode: str = "latent",
+    qiao_residual_scale: Optional[float] = None,
+    qiao_lambda_local_mse: Optional[float] = None,
+    qiao_lambda_residual_l2: Optional[float] = None,
+    qiao_lambda_residual_trade: Optional[float] = None,
 ) -> None:
     # HedgeSet policies operate on many small tensors.  On CPU, excessive BLAS
     # threading can make these small matrix operations dramatically slower.
@@ -9678,6 +10200,15 @@ def run_hedgeset_pipeline(
     cfg.ivgrid_baseline_state_mode = str(ivgrid_state_mode)
     cfg.ntb_ls_state_mode = str(ntb_state_mode)
     cfg.cvar_from_scratch_state_mode = str(cvar_from_scratch_state_mode)
+    cfg.qiao_residual_state_mode = str(qiao_state_mode)
+    if qiao_residual_scale is not None:
+        cfg.qiao_residual_scale = float(qiao_residual_scale)
+    if qiao_lambda_local_mse is not None:
+        cfg.qiao_lambda_local_mse = float(qiao_lambda_local_mse)
+    if qiao_lambda_residual_l2 is not None:
+        cfg.qiao_lambda_residual_l2 = float(qiao_lambda_residual_l2)
+    if qiao_lambda_residual_trade is not None:
+        cfg.qiao_lambda_residual_trade = float(qiao_lambda_residual_trade)
     if ntb_band_max is not None:
         cfg.ntb_ls_band_max = float(ntb_band_max)
     if ntb_lambda_band_l1 is not None:
@@ -9753,6 +10284,12 @@ def run_hedgeset_pipeline(
             "cvar_from_scratch_state_mode": cfg.cvar_from_scratch_state_mode,
             "ntb_ls_band_max": cfg.ntb_ls_band_max,
             "ntb_ls_lambda_band_l1": cfg.ntb_ls_lambda_band_l1,
+            "qiao_residual_state_mode": cfg.qiao_residual_state_mode,
+            "qiao_residual_base": cfg.qiao_residual_base,
+            "qiao_residual_scale": cfg.qiao_residual_scale,
+            "qiao_lambda_local_mse": cfg.qiao_lambda_local_mse,
+            "qiao_lambda_residual_l2": cfg.qiao_lambda_residual_l2,
+            "qiao_lambda_residual_trade": cfg.qiao_lambda_residual_trade,
             "val_score_weights": {
                 "cvar95": cfg.val_score_cvar95_weight,
                 "cvar99": cfg.val_score_cvar99_weight,
@@ -9820,7 +10357,7 @@ def run_hedgeset_pipeline(
                             for sd in cfg.seeds:
                                 cfg_var = _apply_hedgeset_policy_variant(cfg, v)
                                 out_dir = os.path.join(cfg.results_dir, family, f"cost_{cost_bps:g}bps", f"variant_{v}", f"scope_{scope}", f"policy_{mode}", f"seed_{sd}")
-                                m, p = train_hedgeset_policy_one(ep_path, family, mode, cost_bps, cfg_var, out_dir, seed=int(sd), policy_variant=v, action_scope=scope, candidate_run=cfg.run_name, rules_tag=cfg.candidate_rules_tag)
+                                m, p = train_hedgeset_policy_one(ep_path, family, mode, cost_bps, cfg_var, out_dir, seed=int(sd), policy_variant=v, action_scope=scope, candidate_run=getattr(cfg, "run_name", "main"), rules_tag=getattr(cfg, "candidate_rules_tag", ""))
                                 all_metrics.append(m); all_panels.append(p); policy_panels.append(p)
 
             if cfg.modern_baselines:
@@ -9834,7 +10371,7 @@ def run_hedgeset_pipeline(
             # are run within each seed/variant when applicable.
             for variant in sorted(set(panel_here.get("policy_variant", pd.Series(["full"])).dropna())):
                 amb_variants_loop = {"amb", "ambiguous", "amb_full", "robust", "ambiguity"}
-                modern_comp_models = {"IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet"}
+                modern_comp_models = {"IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet", "QiaoResidual-LS"}
                 if "policy_variant" in panel_here and str(variant) in amb_variants_loop:
                     sub_v = panel_here[panel_here["policy_variant"].isin([variant, "full", "static"]) | panel_here["model"].isin(modern_comp_models)]
                 elif str(variant) == "full" and "policy_variant" in panel_here:
@@ -9851,7 +10388,7 @@ def run_hedgeset_pipeline(
                         # full HedgeSet as well as classical and representation baselines.
                         comps = [
                             "HedgeSet-latent", "SmiledDelta", "NoTradeDelta", "LSDeltaVega", "GreedyDeltaVega",
-                            "IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet",
+                            "IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet", "QiaoResidual-LS",
                             "HedgeSet-summary", "HedgeSet-grid", "HedgeSet-setonly", "HedgeSet-nosurface",
                         ]
                     else:
@@ -9859,7 +10396,7 @@ def run_hedgeset_pipeline(
                         suff = "" if variant == "full" else f"-{variant}"
                         comps = [
                             "SmiledDelta", "NoTradeDelta", "LSDeltaVega", "GreedyDeltaVega",
-                            "IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet",
+                            "IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet", "QiaoResidual-LS",
                             f"HedgeSet-summary{suff}", f"HedgeSet-grid{suff}",
                             f"HedgeSet-setonly{suff}", f"HedgeSet-nosurface{suff}",
                         ]
@@ -9895,7 +10432,7 @@ def run_hedgeset_pipeline(
     logger.info(f"HedgeSet episode panel saved -> {panel_path}")
     logger.info(f"HedgeSet bootstrap saved -> {boot_path}")
     logger.info(f"HedgeSet seed summary saved -> {seed_summary_path}")
-    keep = ["candidate_run", "model", "family", "state_mode", "policy_variant", "action_scope", "residual_base", "residual_scale", "imitation_epochs", "factor_neutral_residual", "use_global_trust_gate", "seed", "cost_bps", "n", "mean_loss_norm", "cvar_95", "cvar_99", "worst_regime_cvar_95", "worst_regime_excess_cvar_95", "shortfall_prob", "worst_regime_shortfall_prob", "mean_base_loss_norm", "mean_excess_loss_norm", "mean_relu_excess_loss_norm", "excess_cvar_95", "excess_cvar_99", "mean_residual_l2", "mean_residual_turnover", "mean_abs_residual_delta_exposure", "mean_abs_residual_vega_exposure", "mean_residual_factor_l2", "mean_global_trust", "mean_ntb_band", "mean_ntb_gate", "mean_tc_norm", "mean_turnover", "mean_abs_position"]
+    keep = ["candidate_run", "model", "family", "state_mode", "policy_variant", "action_scope", "residual_base", "residual_scale", "imitation_epochs", "factor_neutral_residual", "use_global_trust_gate", "seed", "cost_bps", "n", "mean_loss_norm", "cvar_95", "cvar_99", "worst_regime_cvar_95", "worst_regime_excess_cvar_95", "shortfall_prob", "worst_regime_shortfall_prob", "mean_base_loss_norm", "mean_excess_loss_norm", "mean_relu_excess_loss_norm", "excess_cvar_95", "excess_cvar_99", "mean_residual_l2", "mean_residual_turnover", "mean_abs_residual_delta_exposure", "mean_abs_residual_vega_exposure", "mean_residual_factor_l2", "mean_global_trust", "mean_ntb_band", "mean_ntb_gate", "mean_local_mse", "mean_tc_norm", "mean_turnover", "mean_abs_position"]
     present = [c for c in keep if c in metrics_df.columns]
     if present:
         logger.info("\n" + metrics_df[present].sort_values(["family", "cost_bps", "cvar_95"]).to_string(index=False))
@@ -10016,13 +10553,23 @@ def main():
     parser.add_argument("--hedgeset-bootstrap-metrics", type=str, default="mean_loss,cvar_95,cvar_99,worst_regime_cvar_95,shortfall_prob,worst_regime_shortfall_prob,mean_turnover,mean_tc_norm",
                         help="Comma-separated paired-bootstrap metrics for HedgeSet comparisons.")
     parser.add_argument("--hedgeset-modern-baselines", type=str, default="",
-                        help="Comma-separated modern baselines: ivgrid,ntb_ls,cvar_from_scratch,all. These run in the same episode/cost/bootstrap stack.")
+                        help="Comma-separated modern baselines: ivgrid,ntb_ls,cvar_from_scratch,qiao_residual_ls,all. These run in the same episode/cost/bootstrap stack.")
     parser.add_argument("--hedgeset-ivgrid-state-mode", type=str, default="grid",
                         help="State mode for fixed-grid IV Surface Deep Hedging baseline. Default: grid.")
     parser.add_argument("--hedgeset-ntb-state-mode", type=str, default="summary",
                         help="State mode for NTB-LS learned no-transaction-band baseline. Default: summary, i.e. no QuoteSet latent.")
     parser.add_argument("--hedgeset-cvar-fromscratch-state-mode", type=str, default="latent",
                         help="State mode for CVaR-HedgeSet-from-scratch baseline. Default: latent.")
+    parser.add_argument("--hedgeset-qiao-state-mode", type=str, default="latent",
+                        help="State mode for QiaoResidual-LS plain anchored residual baseline. Default: latent.")
+    parser.add_argument("--hedgeset-qiao-residual-scale", type=float, default=0.15,
+                        help="Absolute residual cap for QiaoResidual-LS around the LSDeltaVega anchor.")
+    parser.add_argument("--hedgeset-qiao-lambda-local-mse", type=float, default=1.0,
+                        help="Weight on Qiao-style local squared hedging-error loss.")
+    parser.add_argument("--hedgeset-qiao-lambda-residual-l2", type=float, default=0.02,
+                        help="Weight on QiaoResidual-LS residual inventory penalty.")
+    parser.add_argument("--hedgeset-qiao-lambda-residual-trade", type=float, default=0.01,
+                        help="Weight on QiaoResidual-LS residual turnover penalty.")
     parser.add_argument("--hedgeset-ntb-band-max", type=float, default=1.0,
                         help="Maximum learned no-transaction band for NTB-LS baseline.")
     parser.add_argument("--hedgeset-ntb-lambda-band-l1", type=float, default=0.001,
@@ -10155,6 +10702,11 @@ def main():
             cvar_from_scratch_state_mode=args.hedgeset_cvar_fromscratch_state_mode,
             ntb_band_max=args.hedgeset_ntb_band_max,
             ntb_lambda_band_l1=args.hedgeset_ntb_lambda_band_l1,
+            qiao_state_mode=args.hedgeset_qiao_state_mode,
+            qiao_residual_scale=args.hedgeset_qiao_residual_scale,
+            qiao_lambda_local_mse=args.hedgeset_qiao_lambda_local_mse,
+            qiao_lambda_residual_l2=args.hedgeset_qiao_lambda_residual_l2,
+            qiao_lambda_residual_trade=args.hedgeset_qiao_lambda_residual_trade,
         )
         if str(args.hedgeset_candidate_sweeps).strip():
             run_hedgeset_candidate_sweeps(
