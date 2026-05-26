@@ -3757,9 +3757,8 @@ def legacy_penalized_qlike_loss_series(
     invalid_penalty: float = 100.0,
 ) -> np.ndarray:
     """
-    Backward-compatible diagnostic only. Do not use this as a main reported
-    metric for DSV5, because structural zero windows make the fixed penalty
-    dominate the average.
+    Backward-compatible diagnostic for DSV5. Structural-zero windows make the
+    fixed penalty dominate the average.
     """
     out = qlike_loss_series(y_true, y_pred, eps=eps, mode="standard")
     y_true = np.asarray(y_true, dtype=float)
@@ -4675,9 +4674,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     # -----------------------------
     boosted_label, boosted_preds = fit_boosted_summary_baselines(train_df, val_df, test_df, seed=cfg_train.seed)
 
-    # Fixed-grid neural baselines are useful as reference implementations, but
-    # they are not kept in the main forecasting table. They are optionally
-    # trained here and exported to a separate appendix CSV.
+    # Fixed-grid neural baselines are exported to a separate appendix CSV.
     grid_label = "Grid-CNN"
     grid_tr_label = "Grid-Transformer"
     grid_preds = None
@@ -4686,8 +4683,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
         grid_preds = fit_grid_cnn_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed)
         grid_tr_preds = fit_grid_transformer_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed)
 
-    # Optional side-information-matched fixed-grid baselines. These are appendix
-    # strengthening checks and are not used to change the main reported results.
+    # Optional side-information-matched fixed-grid baselines.
     grid_side_label = "Grid-CNN+Side"
     grid_side_tr_label = "Grid-Transformer+Side"
     grid_side_preds = None
@@ -4828,8 +4824,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     add_model(boosted_label, y_rv5, y_rv21, y_dsv5, y_stress,
               boosted_preds["rv5"]["test"], boosted_preds["rv21"]["test"], boosted_preds["dsv5"]["test"],
               test_scores[boosted_label], cls_thresholds[boosted_label])
-    # Grid-CNN / Grid-Transformer are exported as appendix reference baselines
-    # below, not added to the main forecasting table.
+    # Grid-CNN / Grid-Transformer are exported as appendix reference baselines.
     add_model("GARCH", y_rv5, y_rv21, y_dsv5, y_stress,
               garch_pred_rv5, garch_pred_rv21, garch_pred_dsv5, test_scores["GARCH"], cls_thresholds["GARCH"])
 
@@ -4919,7 +4914,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
             tag = f"dm_test_{target_name}_vs_{_slug(baseline_name)}"
             add_dm_result(tag, target_name, baseline_name, y_true, our_pred, pred_dict[target_name])
 
-    # Appendix-only fixed-grid reference baselines.
+    # Fixed-grid reference baselines.
     appendix_grid_rows = []
     if include_grid_appendix and grid_preds is not None and grid_tr_preds is not None:
         for _glabel, _gpreds in [(grid_label, grid_preds), (grid_tr_label, grid_tr_preds)]:
@@ -6098,10 +6093,9 @@ def _liability_feat(
 ) -> np.ndarray:
     """Complete liability-side state used by HedgeSet policies.
 
-    The previous policy state exposed liability delta but not liability vega,
-    while the strongest LSDeltaVega baseline directly observes both.  This
-    feature vector removes that information asymmetry.  Vega is divided by 100
-    to match the instrument feature scaling used in HedgeSet candidate features.
+    The policy state exposes both liability delta and liability vega. Vega is
+    divided by 100 to match the instrument feature scaling used in HedgeSet
+    candidate features.
     L_t/L0 gives the controller a normalized mark-to-market state without
     leaking future information.
     """
@@ -6866,7 +6860,7 @@ def paired_bootstrap_hedging_stat(
     metric: str = "cvar_95",
     n_boot: int = 2000,
 ) -> dict:
-    """Alias for HedgeSet paper-grade paired bootstrap statistics."""
+    """Alias for HedgeSet paired bootstrap statistics."""
     return paired_bootstrap_hedging(panel, model_a, model_b, seed=seed, metric=metric, n_boot=n_boot)
 
 
@@ -6942,7 +6936,7 @@ def run_hedging_pipeline(
                 all_panels.append(p)
                 policy_panels.append(p)
 
-            # Pairwise bootstrap: proposed latent policy versus strongest static and representation baselines.
+            # Pairwise bootstrap for the latent policy and comparator baselines.
             panel_here = pd.concat([static_panel] + policy_panels, ignore_index=True)
             for comparator in ["SmiledDelta", "Policy-summary", "Policy-grid"]:
                 if comparator in set(panel_here["model"]):
@@ -6971,14 +6965,13 @@ def run_hedging_pipeline(
 # =============================================================================
 # QuoteSet-to-HedgeSet Deep Hedging Extension
 # =============================================================================
-# This second hedging block upgrades the earlier underlying-only proof of
-# concept.  It treats the tradable hedge universe itself as a variable-size set:
-# each episode observes a surface-regularized market belief state together with a
-# candidate set of liquid hedge instruments selected from the option chain.  The
-# policy is permutation-equivariant over candidate instruments and outputs
-# state-dependent no-trade bands for each instrument.
+# HedgeSet block with a variable-size tradable hedge universe. Each episode
+# observes a surface-regularized market belief state together with a candidate
+# set of liquid hedge instruments selected from the option chain. The policy is
+# permutation-equivariant over candidate instruments and outputs state-dependent
+# no-trade bands for each instrument.
 #
-# Important evaluation choices:
+# Evaluation protocol:
 #   * liability and option hedge-instrument marks are observed quote mids;
 #   * option transaction costs use half-spread plus a proportional bps component;
 #   * the same liability contract cannot be selected as its own hedge instrument;
@@ -7044,59 +7037,51 @@ class HedgeSetConfig:
     lambda_pos: float = 0.001
     lambda_sparse: float = 0.002
 
-    # Residual classical-hedge prior.  Instead of forcing the neural policy to
-    # rediscover delta/vega hedging from 200--400 episodes, the policy learns a
-    # bounded residual around a classical anchor.  Supported anchors are:
+    # Residual classical-hedge prior. The policy learns a bounded residual around
+    # a classical anchor. Supported anchors are:
     #   none, delta, delta_nt, greedy_deltavega, ls_deltavega.
     residual_base: str = "ls_deltavega"
     # Hard residual control uses q_policy = q_base + residual.  residual_scale
     # is an absolute position cap for the learned correction, not multiplied by
-    # q_max.  This keeps the neural layer conservative around LSDeltaVega.
+    # q_max.
     residual_scale: float = 0.15
     imitation_epochs: int = 10
     imitation_lambda: float = 1.0
     finetune_imitation_lambda: float = 0.02
 
-    # Excess-loss risk control relative to the classical residual base.  These
-    # penalties directly target the failure mode where a neural residual wins on
-    # average but loses badly in the tail versus LSDeltaVega.
+    # Excess-loss risk control relative to the classical residual base.
     lambda_excess_cvar: float = 0.50
     lambda_excess_relu: float = 0.25
     lambda_residual_l2: float = 0.05
     lambda_residual_trade: float = 0.02
 
     # Factor-neutral residual overlay.  The LS base already hedges delta/vega;
-    # the neural layer is therefore projected toward the null space of the
-    # candidate-set delta/vega loading matrix.  This prevents the residual from
-    # undoing the classical first-order hedge.
+    # the neural layer is projected toward the null space of the candidate-set
+    # delta/vega loading matrix.
     factor_neutral_residual: bool = True
     factor_neutral_ridge: float = 1e-4
     lambda_factor_neutral: float = 0.10
 
     # Global uncertainty/trust gate.  A scalar trust gate multiplies the entire
-    # residual overlay.  The gate is initialized below one, so the model starts
-    # close to the LS base and earns deviations only when validation risk favors
-    # them.
+    # residual overlay. The gate is initialized below one.
     use_global_trust_gate: bool = True
     trust_gate_init_bias: float = -2.0
     trust_gate_temp: float = 1.0
     lambda_trust_l1: float = 0.01
 
-    # Regime-conditioned excess risk.  This is distinct from ambiguity_penalty
-    # on absolute policy loss: it punishes the worst option-implied regime where
-    # the neural overlay loses relative to the LS base.
+    # Regime-conditioned excess risk relative to the LS base.
     lambda_regime_excess_cvar: float = 0.25
     regime_excess_eta: float = 8.0
 
     # Auxiliary dense supervision.  The policy predicts short-horizon base-loss
     # and transition proxies from the current belief/candidate-set state.  This
-    # supplies dense gradients before the sparse CVaR tail objective dominates.
+    # supplies dense gradients before the CVaR tail objective dominates.
     lambda_aux_risk: float = 0.05
 
     # Modern baseline suite.  These baselines use the same episodes, candidate
     # instruments, cost accounting, validation selection, and paired bootstrap as
     # the FNUG model.  They are off by default and enabled with
-    # --hedgeset-modern-baselines ivgrid,ntb_ls,cvar_from_scratch or all.
+    # --hedgeset-modern-baselines ivgrid,ntb_ls,cvar_from_scratch,qiao_residual_ls or all.
     modern_baselines: List[str] = field(default_factory=list)
     ivgrid_baseline_state_mode: str = "grid"
     cvar_from_scratch_state_mode: str = "latent"

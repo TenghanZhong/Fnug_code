@@ -55,13 +55,11 @@ mpl.rcParams.update({
 METHOD_DIRS = {
     "FNUG": "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8",
     # Optional hard-LS-only run. Figure 2/3 use it if it exists.
-    # Figure 4 deliberately reads LSDeltaVega from the static baseline panel
-    # inside the main FNUG run.
+    # Figure 4 reads LSDeltaVega from the static baseline panel.
     "LSDeltaVega": "A5_hardls_only_1eaa24b3f8",
 }
 
-# Internal labels are the keys below. Display labels are defined separately for
-# plot legends.
+# Dictionary keys are separate from legend labels.
 MODERN_BASELINES = {
     "IVGrid-HedgeSet": "ivgrid",
     "NTB-LS": "ntb_ls",
