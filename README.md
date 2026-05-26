@@ -16,6 +16,9 @@ data, local cache files, model checkpoints, or local machine paths.
   QiaoResidual-LS baseline run.
 - `results/hedgeset/`: derived metric, bootstrap, and run-configuration files
   used by the paper.
+- `results/hedgeset/full_vs_ablation_paired_bootstrap.csv`: paired-bootstrap
+  diagnostics comparing the full policy with ablation variants on ATM call,
+  2 bps, seed 42.
 - `results/hedgeset/qiao_ls_m4_1eaa24b3f8/`: QiaoResidual-LS point-estimate
   baseline outputs.
 - `results/paper_figures/`: CSV, PDF, and PNG outputs for the paper figures.
