@@ -18,6 +18,7 @@ EXPECTED_FILES = [
     "results/analysis/final_noreg_combined_episode_panel.csv",
     "results/analysis/final_noreg_pairwise_bootstrap.csv",
     "results/analysis/ivgrid_noreg_maincell_bootstrap.csv",
+    "results/analysis/final_noreg_artifact_manifest.md",
     "results/analysis/final_noreg_ablation_pairwise_bootstrap.csv",
     "results/analysis/final_noreg_main_cell_metrics.csv",
     "results/analysis/final_noreg_heatmap_values.csv",
@@ -26,7 +27,6 @@ EXPECTED_FILES = [
     "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_pairwise_bootstrap.csv",
     "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/run_config.json",
-    "results/hedgeset/fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
     "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/run_config.json",
@@ -180,6 +180,46 @@ def check_ivgrid_noreg_metrics() -> dict[str, str]:
     }
 
 
+def check_combined_artifact_cleanliness() -> list[str]:
+    problems: list[str] = []
+    metrics_path = ROOT / "results/analysis/final_noreg_combined_metrics.csv"
+    panel_path = ROOT / "results/analysis/final_noreg_combined_episode_panel.csv"
+    if not metrics_path.exists() or not panel_path.exists():
+        return ["combined analysis files are missing"]
+
+    with metrics_path.open(newline="", encoding="utf-8") as f:
+        metric_rows = list(csv.DictReader(f))
+    with panel_path.open(newline="", encoding="utf-8") as f:
+        panel_rows = list(csv.DictReader(f))
+
+    for name, rows in [("metrics", metric_rows), ("episode_panel", panel_rows)]:
+        legacy_ivgrid = [
+            row for row in rows
+            if row.get("model") == "IVGrid-HedgeSet"
+            and row.get("candidate_run") == "fnug_modern_fam3_cost3_seed3_m4"
+        ]
+        if legacy_ivgrid:
+            problems.append(f"{name} contains {len(legacy_ivgrid)} legacy IVGrid rows")
+
+    ivgrid_noreg = [
+        row for row in metric_rows
+        if row.get("model") == "IVGrid-HedgeSet"
+        and row.get("candidate_run") == "fnug_modern_noreg_fam3_cost3_seed3_m4"
+    ]
+    if not ivgrid_noreg:
+        problems.append("combined metrics has no no-regime IVGrid rows")
+
+    for row in metric_rows:
+        value = row.get("lambda_regime_excess_cvar", "")
+        if value not in {"", "0", "0.0"}:
+            problems.append(
+                f"combined metrics has nonzero regime weight for {row.get('model')} "
+                f"({row.get('candidate_run')}): {value}"
+            )
+            break
+    return problems
+
+
 def main() -> int:
     missing = check_expected_files()
     sensitive = check_sensitive_tokens()
@@ -187,6 +227,7 @@ def main() -> int:
     metrics = check_main_metrics()
     qiao_metrics = check_qiao_metrics()
     ivgrid_metrics = check_ivgrid_noreg_metrics()
+    combined_problems = check_combined_artifact_cleanliness()
 
     if missing:
         print("Missing expected files:")
@@ -226,7 +267,12 @@ def main() -> int:
     else:
         print("IVGrid-HedgeSet no-regime smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
 
-    if missing or sensitive or bad_regime_weights or not metrics or not qiao_metrics or not ivgrid_metrics:
+    if combined_problems:
+        print("Combined artifact cleanliness check failed:")
+        for problem in combined_problems:
+            print(f"  - {problem}")
+
+    if missing or sensitive or bad_regime_weights or not metrics or not qiao_metrics or not ivgrid_metrics or combined_problems:
         return 1
     print("Artifact check passed.")
     return 0

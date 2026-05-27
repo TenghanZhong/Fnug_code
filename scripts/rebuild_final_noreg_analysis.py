@@ -11,10 +11,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 
 FINAL_RUN = "fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8"
-BASELINE_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
+LEGACY_MODERN_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
+IVGRID_NOREG_RUN = "fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8"
 QIAO_RUN = "qiao_ls_m4_1eaa24b3f8"
 
 FNUG_MODEL = "HedgeSet-latent"
+LEGACY_MODERN_MODELS = ["NTB-LS", "CVaR-HedgeSet"]
 COMPARATORS = [
     "LSDeltaVega",
     "IVGrid-HedgeSet",
@@ -55,20 +57,53 @@ def read_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     return metrics, panel
 
 
-def assemble(root: Path, final_run: str, baseline_run: str, qiao_run: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+def normalize_no_regime_metadata(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if "lambda_regime_excess_cvar" in df.columns:
+        df["lambda_regime_excess_cvar"] = 0.0
+    return df
+
+
+def only_models(df: pd.DataFrame, models: list[str]) -> pd.DataFrame:
+    return df[df["model"].isin(models)].copy()
+
+
+def assemble(
+    root: Path,
+    final_run: str,
+    legacy_modern_run: str,
+    ivgrid_noreg_run: str,
+    qiao_run: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     final_metrics, final_panel = read_run(root, final_run)
-    base_metrics, base_panel = read_run(root, baseline_run)
+    legacy_metrics, legacy_panel = read_run(root, legacy_modern_run)
+    ivgrid_metrics, ivgrid_panel = read_run(root, ivgrid_noreg_run)
     qiao_metrics, qiao_panel = read_run(root, qiao_run)
 
-    final_metrics = final_metrics[final_metrics["model"].eq(FNUG_MODEL)].copy()
-    final_panel = final_panel[final_panel["model"].eq(FNUG_MODEL)].copy()
+    final_keep = [FNUG_MODEL, "NoHedge", "SmiledDelta", "NoTradeDelta", "GreedyDeltaVega", "LSDeltaVega"]
+    final_metrics = only_models(final_metrics, final_keep)
+    final_panel = only_models(final_panel, final_keep)
 
-    base_metrics = base_metrics[~base_metrics["model"].eq(FNUG_MODEL)].copy()
-    base_panel = base_panel[~base_panel["model"].eq(FNUG_MODEL)].copy()
+    legacy_metrics = only_models(legacy_metrics, LEGACY_MODERN_MODELS)
+    legacy_panel = only_models(legacy_panel, LEGACY_MODERN_MODELS)
 
-    metrics = pd.concat([final_metrics, base_metrics, qiao_metrics], ignore_index=True, sort=False)
-    panel = pd.concat([final_panel, base_panel, qiao_panel], ignore_index=True, sort=False)
-    return metrics, panel
+    ivgrid_metrics = only_models(ivgrid_metrics, ["IVGrid-HedgeSet"])
+    ivgrid_panel = only_models(ivgrid_panel, ["IVGrid-HedgeSet"])
+
+    qiao_metrics = only_models(qiao_metrics, ["QiaoResidual-LS"])
+    qiao_panel = only_models(qiao_panel, ["QiaoResidual-LS"])
+
+    metrics = pd.concat(
+        [final_metrics, legacy_metrics, qiao_metrics, ivgrid_metrics],
+        ignore_index=True,
+        sort=False,
+    )
+    panel = pd.concat(
+        [final_panel, legacy_panel, qiao_panel, ivgrid_panel],
+        ignore_index=True,
+        sort=False,
+    )
+    return normalize_no_regime_metadata(metrics), normalize_no_regime_metadata(panel)
 
 
 def finite_array(x: pd.Series | np.ndarray) -> np.ndarray:
@@ -309,7 +344,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Rebuild final no-static-regime FNUG analysis tables.")
     parser.add_argument("--root", type=Path, default=ROOT, help="Project root containing results/hedgeset.")
     parser.add_argument("--final-run", default=FINAL_RUN)
-    parser.add_argument("--baseline-run", default=BASELINE_RUN)
+    parser.add_argument("--legacy-modern-run", default=LEGACY_MODERN_RUN)
+    parser.add_argument("--ivgrid-noreg-run", default=IVGRID_NOREG_RUN)
     parser.add_argument("--qiao-run", default=QIAO_RUN)
     parser.add_argument("--n-boot", type=int, default=2000)
     parser.add_argument("--outdir", type=Path, default=None)
@@ -319,7 +355,7 @@ def main() -> int:
     outdir = args.outdir or (root / "results" / "analysis")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    metrics, panel = assemble(root, args.final_run, args.baseline_run, args.qiao_run)
+    metrics, panel = assemble(root, args.final_run, args.legacy_modern_run, args.ivgrid_noreg_run, args.qiao_run)
     metrics.to_csv(outdir / "final_noreg_combined_metrics.csv", index=False)
     panel.to_csv(outdir / "final_noreg_combined_episode_panel.csv", index=False)
 
