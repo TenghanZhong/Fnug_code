@@ -12,18 +12,25 @@ EXPECTED_FILES = [
     "src/fnug.py",
     "src/plot_fnug.py",
     "configs/qiao_residual_ls.json",
+    "results/analysis/final_noreg_combined_metrics.csv",
+    "results/analysis/final_noreg_combined_episode_panel.csv",
+    "results/analysis/final_noreg_pairwise_bootstrap.csv",
+    "results/analysis/final_noreg_ablation_pairwise_bootstrap.csv",
+    "results/analysis/final_noreg_main_cell_metrics.csv",
+    "results/analysis/final_noreg_heatmap_values.csv",
+    "results/analysis/final_noreg_vs_ls_reductions.csv",
     "results/paper_figures/figure4_heatmap_values.csv",
-    "results/hedgeset/fnug_main_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/fnug_main_fam3_cost3_seed3_1eaa24b3f8/hedgeset_pairwise_bootstrap.csv",
+    "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_pairwise_bootstrap.csv",
+    "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/run_config.json",
     "results/hedgeset/fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_seed_summary.csv",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/run_config.json",
-    "results/hedgeset/A1_no_factorneutral_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/A2_no_trustgate_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/A3_no_regimeexcess_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/A4_no_auxrisk_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/Aplus_no_factorneutral_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/Aplus_no_trustgate_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/Aplus_no_auxrisk_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/A5_hardls_only_1eaa24b3f8/hedgeset_test_metrics_all.csv",
 ]
 
@@ -66,7 +73,7 @@ def check_sensitive_tokens() -> list[tuple[str, int, str]]:
 
 
 def check_main_metrics() -> dict[str, str]:
-    path = ROOT / "results/hedgeset/fnug_main_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv"
+    path = ROOT / "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv"
     if not path.exists():
         return {}
     with path.open(newline="", encoding="utf-8") as f:

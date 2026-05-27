@@ -16,9 +16,14 @@ data, local cache files, model checkpoints, or local machine paths.
   QiaoResidual-LS baseline run.
 - `results/hedgeset/`: derived metric, bootstrap, and run-configuration files
   used by the paper.
-- `results/hedgeset/full_vs_ablation_paired_bootstrap.csv`: paired-bootstrap
-  diagnostics comparing the full policy with ablation variants on ATM call,
-  2 bps, seed 42.
+- `results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/`: final
+  FNUG run used for the paper tables and figures.
+- `results/analysis/`: combined metric tables and paired-bootstrap summaries
+  rebuilt from the final FNUG run and released comparator outputs.
+- `results/hedgeset/Aplus_no_factorneutral_1eaa24b3f8/`,
+  `results/hedgeset/Aplus_no_trustgate_1eaa24b3f8/`, and
+  `results/hedgeset/Aplus_no_auxrisk_1eaa24b3f8/`: component diagnostic runs
+  for ATM call, 2 bps, seed 42.
 - `results/hedgeset/qiao_ls_m4_1eaa24b3f8/`: QiaoResidual-LS point-estimate
   baseline outputs.
 - `results/paper_figures/`: CSV, PDF, and PNG outputs for the paper figures.
@@ -62,6 +67,13 @@ Expected outputs:
 - `figure3_paired_excess_loss_vs_ls.{pdf,png}`
 - `figure4_cost_seed_robustness_heatmap.{pdf,png}`
 - `figure5_residual_diagnostics.{pdf,png}`
+
+The combined paper tables can be rebuilt with:
+
+```bash
+python scripts/rebuild_final_noreg_analysis.py
+python scripts/rebuild_final_noreg_ablation.py
+```
 
 ## Raw Data
 

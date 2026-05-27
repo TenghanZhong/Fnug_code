@@ -7069,8 +7069,10 @@ class HedgeSetConfig:
     trust_gate_temp: float = 1.0
     lambda_trust_l1: float = 0.01
 
-    # Regime-conditioned excess risk relative to the LS base.
-    lambda_regime_excess_cvar: float = 0.25
+    # Static regime-conditioned excess risk relative to the LS base.
+    # Disabled in the final specification; adaptive stress-conditioned variants
+    # are left as an extension rather than part of the default model.
+    lambda_regime_excess_cvar: float = 0.0
     regime_excess_eta: float = 8.0
 
     # Auxiliary dense supervision.  The policy predicts short-horizon base-loss
@@ -7116,7 +7118,7 @@ class HedgeSetConfig:
     val_score_excess_cvar95_weight: float = 1.00
     val_score_excess_cvar99_weight: float = 0.25
     val_score_excess_relu_weight: float = 0.50
-    val_score_worst_regime_excess_weight: float = 0.50
+    val_score_worst_regime_excess_weight: float = 0.0
     val_score_factor_weight: float = 0.10
     val_score_trust_weight: float = 0.02
 
@@ -8548,7 +8550,7 @@ def hedgeset_training_loss(agent: HedgeSetAgent, batch: dict, cfg: HedgeSetConfi
             + float(getattr(cfg, "finetune_imitation_lambda", 0.02)) * imit_pen
             + float(getattr(cfg, "lambda_excess_cvar", 0.50)) * excess_cvar
             + float(getattr(cfg, "lambda_excess_relu", 0.25)) * excess_relu
-            + float(getattr(cfg, "lambda_regime_excess_cvar", 0.25)) * regime_excess_cvar
+            + float(getattr(cfg, "lambda_regime_excess_cvar", 0.0)) * regime_excess_cvar
             + float(getattr(cfg, "lambda_residual_l2", 0.05)) * residual_l2_pen
             + float(getattr(cfg, "lambda_residual_trade", 0.02)) * residual_trade_pen
             + float(getattr(cfg, "lambda_factor_neutral", 0.10)) * residual_factor_pen
@@ -10110,6 +10112,7 @@ def run_hedgeset_pipeline(
     lambda_trust_l1: Optional[float] = None,
     lambda_regime_excess_cvar: Optional[float] = None,
     lambda_aux_risk: Optional[float] = None,
+    val_score_worst_regime_excess_weight: Optional[float] = None,
     modern_baselines: Optional[List[str]] = None,
     ivgrid_state_mode: str = "grid",
     ntb_state_mode: str = "summary",
@@ -10179,6 +10182,8 @@ def run_hedgeset_pipeline(
         cfg.lambda_regime_excess_cvar = float(lambda_regime_excess_cvar)
     if lambda_aux_risk is not None:
         cfg.lambda_aux_risk = float(lambda_aux_risk)
+    if val_score_worst_regime_excess_weight is not None:
+        cfg.val_score_worst_regime_excess_weight = float(val_score_worst_regime_excess_weight)
     cfg.modern_baselines = _normalize_modern_baseline_names(modern_baselines or [])
     cfg.ivgrid_baseline_state_mode = str(ivgrid_state_mode)
     cfg.ntb_ls_state_mode = str(ntb_state_mode)
@@ -10283,6 +10288,7 @@ def run_hedgeset_pipeline(
                 "excess_cvar95": cfg.val_score_excess_cvar95_weight,
                 "excess_cvar99": cfg.val_score_excess_cvar99_weight,
                 "excess_relu": cfg.val_score_excess_relu_weight,
+                "worst_regime_excess": cfg.val_score_worst_regime_excess_weight,
             },
         }, f, indent=2)
 
@@ -10606,8 +10612,10 @@ def main():
                         help="Temperature of the global trust gate sigmoid.")
     parser.add_argument("--hedgeset-lambda-trust-l1", type=float, default=0.01,
                         help="Penalty on average residual trust, encouraging LS fallback unless residual value is earned.")
-    parser.add_argument("--hedgeset-lambda-regime-excess-cvar", type=float, default=0.25,
-                        help="Penalty on smooth worst-regime CVaR of excess loss over the LS base.")
+    parser.add_argument("--hedgeset-lambda-regime-excess-cvar", type=float, default=0.0,
+                        help="Penalty on static worst-regime CVaR of excess loss over the LS base. Default 0 for the final specification.")
+    parser.add_argument("--hedgeset-val-score-worst-regime-excess-weight", type=float, default=0.0,
+                        help="Validation-score weight on worst-regime excess CVaR. Default 0 for the final no-static-regime-excess design.")
     parser.add_argument("--hedgeset-lambda-aux-risk", type=float, default=0.05,
                         help="Weight on auxiliary transition/base-risk prediction loss.")
     args = parser.parse_args()
@@ -10679,6 +10687,7 @@ def main():
             lambda_trust_l1=args.hedgeset_lambda_trust_l1,
             lambda_regime_excess_cvar=args.hedgeset_lambda_regime_excess_cvar,
             lambda_aux_risk=args.hedgeset_lambda_aux_risk,
+            val_score_worst_regime_excess_weight=args.hedgeset_val_score_worst_regime_excess_weight,
             modern_baselines=_parse_list_arg(args.hedgeset_modern_baselines),
             ivgrid_state_mode=args.hedgeset_ivgrid_state_mode,
             ntb_state_mode=args.hedgeset_ntb_state_mode,
@@ -10691,13 +10700,16 @@ def main():
             qiao_lambda_residual_l2=args.hedgeset_qiao_lambda_residual_l2,
             qiao_lambda_residual_trade=args.hedgeset_qiao_lambda_residual_trade,
         )
-        if str(args.hedgeset_candidate_sweeps).strip():
+        candidate_sweeps_text = str(args.hedgeset_candidate_sweeps).strip()
+        if candidate_sweeps_text.lower() in {"none", "no", "off", "false", "0"}:
+            candidate_sweeps_text = ""
+        if candidate_sweeps_text:
             run_hedgeset_candidate_sweeps(
                 families=_parse_list_arg(args.hedge_families),
                 state_modes=_parse_list_arg(args.hedge_state_modes),
                 cost_bps_list=_parse_float_list(args.hedge_cost_bps_list),
                 default_candidate_rules=default_rules,
-                sweep_names=_parse_list_arg(args.hedgeset_candidate_sweeps),
+                sweep_names=_parse_list_arg(candidate_sweeps_text),
                 **common_kwargs,
             )
         else:

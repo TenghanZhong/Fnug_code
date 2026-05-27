@@ -53,11 +53,13 @@ mpl.rcParams.update({
 # Run directory names
 # -----------------------------------------------------------------------------
 METHOD_DIRS = {
-    "FNUG": "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8",
+    "FNUG": "fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8",
     # Optional hard-LS-only run. Figure 2/3 use it if it exists.
     # Figure 4 reads LSDeltaVega from the static baseline panel.
     "LSDeltaVega": "A5_hardls_only_1eaa24b3f8",
 }
+
+MODERN_BASELINE_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
 
 # Dictionary keys are separate from legend labels.
 MODERN_BASELINES = {
@@ -286,7 +288,7 @@ def ls_case_panel_path(root: Path, liability: str, cost_bps: int, seed: int) -> 
 def baseline_case_panel_path(root: Path, baseline_label: str, liability: str, cost_bps: int, seed: int) -> Path:
     baseline_dir = MODERN_BASELINES[baseline_label]
     return (
-        root / "results" / "hedgeset" / METHOD_DIRS["FNUG"] /
+        root / "results" / "hedgeset" / MODERN_BASELINE_RUN /
         liability / f"cost_{cost_bps}bps" / "modern_baselines" /
         baseline_dir / "scope_full" / f"seed_{seed}" / "test_episode_panel.csv"
     )
@@ -687,7 +689,7 @@ def make_figure4_heatmap(root: Path, outdir: Path) -> None:
     pd.DataFrame(rows).to_csv(outdir / "figure4_heatmap_values.csv", index=False)
 
 # -----------------------------------------------------------------------------
-# Figure 5: residual diagnostics, improved but still better suited for appendix
+# Figure 5: residual diagnostics
 # -----------------------------------------------------------------------------
 def filter_fnug_diagnostics_rows(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
