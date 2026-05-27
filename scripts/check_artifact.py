@@ -17,6 +17,7 @@ EXPECTED_FILES = [
     "results/analysis/final_noreg_combined_metrics.csv",
     "results/analysis/final_noreg_combined_episode_panel.csv",
     "results/analysis/final_noreg_pairwise_bootstrap.csv",
+    "results/analysis/ivgrid_matched_cell_summary.csv",
     "results/analysis/ivgrid_noreg_maincell_bootstrap.csv",
     "results/analysis/final_noreg_artifact_manifest.md",
     "results/analysis/final_noreg_ablation_pairwise_bootstrap.csv",
@@ -31,6 +32,9 @@ EXPECTED_FILES = [
     "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
     "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/run_config.json",
     "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/atm_call/cost_2bps/modern_baselines/ivgrid/scope_full/seed_42/test_metrics.csv",
+    "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
+    "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/run_config.json",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_seed_summary.csv",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
     "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
@@ -116,6 +120,7 @@ def check_regime_weights() -> list[tuple[str, str]]:
         ROOT / "configs/qiao_residual_ls.json",
         ROOT / "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/run_config.json",
         ROOT / "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/run_config.json",
+        ROOT / "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/run_config.json",
         ROOT / "results/hedgeset/qiao_ls_m4_1eaa24b3f8/run_config.json",
     ]
     pattern = re.compile(r'"lambda_regime_excess_cvar"\s*:\s*([^,\n}]+)')
@@ -204,10 +209,15 @@ def check_combined_artifact_cleanliness() -> list[str]:
     ivgrid_noreg = [
         row for row in metric_rows
         if row.get("model") == "IVGrid-HedgeSet"
-        and row.get("candidate_run") == "fnug_modern_noreg_fam3_cost3_seed3_m4"
+        and row.get("candidate_run") in {
+            "fnug_modern_noreg_fam3_cost3_seed3_m4",
+            "fnug_modern_noreg_straddle_m4",
+        }
     ]
     if not ivgrid_noreg:
         problems.append("combined metrics has no no-regime IVGrid rows")
+    elif len(ivgrid_noreg) != 24:
+        problems.append(f"combined metrics has {len(ivgrid_noreg)} no-regime IVGrid rows; expected 24")
 
     for row in metric_rows:
         value = row.get("lambda_regime_excess_cvar", "")
@@ -220,6 +230,33 @@ def check_combined_artifact_cleanliness() -> list[str]:
     return problems
 
 
+def check_ivgrid_matched_summary() -> dict[str, str]:
+    path = ROOT / "results/analysis/ivgrid_matched_cell_summary.csv"
+    if not path.exists():
+        return {}
+    with path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    out: dict[str, str] = {}
+    for row in rows:
+        metric = row.get("metric", "")
+        if metric in {"cvar_95", "cvar_99", "worst_regime_cvar_95"}:
+            out[f"{metric}_n_cells"] = row.get("n_cells", "")
+            out[f"{metric}_fnug_lower_cells"] = row.get("fnug_lower_cells", "")
+            out[f"{metric}_mean_diff"] = f"{float(row['mean_diff_fnug_minus_ivgrid']):.4f}"
+    expected = {
+        "cvar_95_n_cells": "24",
+        "cvar_95_fnug_lower_cells": "17",
+        "cvar_99_n_cells": "24",
+        "cvar_99_fnug_lower_cells": "17",
+        "worst_regime_cvar_95_n_cells": "24",
+        "worst_regime_cvar_95_fnug_lower_cells": "17",
+    }
+    for key, value in expected.items():
+        if out.get(key) != value:
+            return {}
+    return out
+
+
 def main() -> int:
     missing = check_expected_files()
     sensitive = check_sensitive_tokens()
@@ -227,6 +264,7 @@ def main() -> int:
     metrics = check_main_metrics()
     qiao_metrics = check_qiao_metrics()
     ivgrid_metrics = check_ivgrid_noreg_metrics()
+    ivgrid_matched_summary = check_ivgrid_matched_summary()
     combined_problems = check_combined_artifact_cleanliness()
 
     if missing:
@@ -267,12 +305,28 @@ def main() -> int:
     else:
         print("IVGrid-HedgeSet no-regime smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
 
+    if ivgrid_matched_summary:
+        print("IVGrid matched-cell summary check:")
+        for key, value in ivgrid_matched_summary.items():
+            print(f"  {key}: {value}")
+    else:
+        print("IVGrid matched-cell summary check failed.")
+
     if combined_problems:
         print("Combined artifact cleanliness check failed:")
         for problem in combined_problems:
             print(f"  - {problem}")
 
-    if missing or sensitive or bad_regime_weights or not metrics or not qiao_metrics or not ivgrid_metrics or combined_problems:
+    if (
+        missing
+        or sensitive
+        or bad_regime_weights
+        or not metrics
+        or not qiao_metrics
+        or not ivgrid_metrics
+        or not ivgrid_matched_summary
+        or combined_problems
+    ):
         return 1
     print("Artifact check passed.")
     return 0

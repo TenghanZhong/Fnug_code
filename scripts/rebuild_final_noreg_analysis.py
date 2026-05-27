@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FINAL_RUN = "fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8"
 LEGACY_MODERN_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
 IVGRID_NOREG_RUN = "fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8"
+IVGRID_NOREG_EXTRA_RUNS = ["fnug_modern_noreg_straddle_m4_1eaa24b3f8"]
 QIAO_RUN = "qiao_ls_m4_1eaa24b3f8"
 
 FNUG_MODEL = "HedgeSet-latent"
@@ -57,6 +58,15 @@ def read_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     return metrics, panel
 
 
+def read_optional_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+    run_dir = hedgeset_root(root) / run_name
+    metrics_path = run_dir / "hedgeset_test_metrics_all.csv"
+    panel_path = run_dir / "hedgeset_test_episode_panel_all.csv"
+    if not metrics_path.exists() or not panel_path.exists():
+        return None
+    return read_csv(metrics_path), read_csv(panel_path)
+
+
 def normalize_no_regime_metadata(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if "lambda_regime_excess_cvar" in df.columns:
@@ -73,6 +83,7 @@ def assemble(
     final_run: str,
     legacy_modern_run: str,
     ivgrid_noreg_run: str,
+    ivgrid_noreg_extra_runs: list[str],
     qiao_run: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     final_metrics, final_panel = read_run(root, final_run)
@@ -89,6 +100,17 @@ def assemble(
 
     ivgrid_metrics = only_models(ivgrid_metrics, ["IVGrid-HedgeSet"])
     ivgrid_panel = only_models(ivgrid_panel, ["IVGrid-HedgeSet"])
+    ivgrid_metric_parts = [ivgrid_metrics]
+    ivgrid_panel_parts = [ivgrid_panel]
+    for extra_run in ivgrid_noreg_extra_runs:
+        loaded = read_optional_run(root, extra_run)
+        if loaded is None:
+            continue
+        extra_metrics, extra_panel = loaded
+        ivgrid_metric_parts.append(only_models(extra_metrics, ["IVGrid-HedgeSet"]))
+        ivgrid_panel_parts.append(only_models(extra_panel, ["IVGrid-HedgeSet"]))
+    ivgrid_metrics = pd.concat(ivgrid_metric_parts, ignore_index=True, sort=False)
+    ivgrid_panel = pd.concat(ivgrid_panel_parts, ignore_index=True, sort=False)
 
     qiao_metrics = only_models(qiao_metrics, ["QiaoResidual-LS"])
     qiao_panel = only_models(qiao_panel, ["QiaoResidual-LS"])
@@ -104,6 +126,48 @@ def assemble(
         sort=False,
     )
     return normalize_no_regime_metadata(metrics), normalize_no_regime_metadata(panel)
+
+
+def _with_case_key(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["cost_bps_key"] = pd.to_numeric(out["cost_bps"], errors="coerce").round(8)
+    out["seed_key"] = pd.to_numeric(out["seed"], errors="coerce").round(0).astype("Int64")
+    return out
+
+
+def build_ivgrid_matched_cell_summary(metrics: pd.DataFrame) -> pd.DataFrame:
+    metric_names = ["cvar_95", "cvar_99", "worst_regime_cvar_95"]
+    cols = ["family", "cost_bps_key", "seed_key", *metric_names]
+    fnug = _with_case_key(metrics[metrics["model"].eq(FNUG_MODEL)])
+    ivgrid = _with_case_key(metrics[metrics["model"].eq("IVGrid-HedgeSet")])
+    matched = fnug[cols].merge(
+        ivgrid[cols],
+        on=["family", "cost_bps_key", "seed_key"],
+        how="inner",
+        suffixes=("_fnug", "_ivgrid"),
+    )
+    rows: list[dict[str, object]] = []
+    families = ",".join(sorted(matched["family"].dropna().astype(str).unique()))
+    for metric in metric_names:
+        diff = pd.to_numeric(matched[f"{metric}_fnug"], errors="coerce") - pd.to_numeric(
+            matched[f"{metric}_ivgrid"], errors="coerce"
+        )
+        diff = diff[np.isfinite(diff)]
+        if diff.empty:
+            continue
+        rows.append({
+            "metric": metric,
+            "n_cells": int(diff.size),
+            "families": families,
+            "fnug_lower_cells": int((diff < 0).sum()),
+            "ivgrid_lower_cells": int((diff > 0).sum()),
+            "ties": int((diff == 0).sum()),
+            "mean_diff_fnug_minus_ivgrid": float(diff.mean()),
+            "median_diff_fnug_minus_ivgrid": float(diff.median()),
+            "min_diff_fnug_minus_ivgrid": float(diff.min()),
+            "max_diff_fnug_minus_ivgrid": float(diff.max()),
+        })
+    return pd.DataFrame(rows)
 
 
 def finite_array(x: pd.Series | np.ndarray) -> np.ndarray:
@@ -346,6 +410,7 @@ def main() -> int:
     parser.add_argument("--final-run", default=FINAL_RUN)
     parser.add_argument("--legacy-modern-run", default=LEGACY_MODERN_RUN)
     parser.add_argument("--ivgrid-noreg-run", default=IVGRID_NOREG_RUN)
+    parser.add_argument("--ivgrid-noreg-extra-runs", default=",".join(IVGRID_NOREG_EXTRA_RUNS))
     parser.add_argument("--qiao-run", default=QIAO_RUN)
     parser.add_argument("--n-boot", type=int, default=2000)
     parser.add_argument("--outdir", type=Path, default=None)
@@ -355,16 +420,20 @@ def main() -> int:
     outdir = args.outdir or (root / "results" / "analysis")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    metrics, panel = assemble(root, args.final_run, args.legacy_modern_run, args.ivgrid_noreg_run, args.qiao_run)
+    extra_runs = [r.strip() for r in str(args.ivgrid_noreg_extra_runs).split(",") if r.strip()]
+    metrics, panel = assemble(root, args.final_run, args.legacy_modern_run, args.ivgrid_noreg_run, extra_runs, args.qiao_run)
     metrics.to_csv(outdir / "final_noreg_combined_metrics.csv", index=False)
     panel.to_csv(outdir / "final_noreg_combined_episode_panel.csv", index=False)
 
     boot = build_bootstrap(panel, n_boot=args.n_boot)
     boot.to_csv(outdir / "final_noreg_pairwise_bootstrap.csv", index=False)
     write_summary_tables(metrics, outdir)
+    ivgrid_summary = build_ivgrid_matched_cell_summary(metrics)
+    ivgrid_summary.to_csv(outdir / "ivgrid_matched_cell_summary.csv", index=False)
 
     print(f"Wrote combined metrics/panel and bootstrap to {outdir}")
     print(f"Bootstrap rows: {len(boot)}")
+    print(f"IVGrid matched-cell summary rows: {len(ivgrid_summary)}")
     return 0
 
 

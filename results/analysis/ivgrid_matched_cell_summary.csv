@@ -1,0 +1,4 @@
+metric,n_cells,families,fnug_lower_cells,ivgrid_lower_cells,ties,mean_diff_fnug_minus_ivgrid,median_diff_fnug_minus_ivgrid,min_diff_fnug_minus_ivgrid,max_diff_fnug_minus_ivgrid
+cvar_95,24,"atm_call,atm_straddle,put25",17,7,0,-0.008866743472892609,-0.0018556554402623382,-0.06950823749814716,0.007489338517188998
+cvar_99,24,"atm_call,atm_straddle,put25",17,7,0,-0.019781271306176993,-0.003983911126852063,-0.17000438272953033,0.01756566017866129
+worst_regime_cvar_95,24,"atm_call,atm_straddle,put25",17,7,0,-0.020185046394666045,-0.003159934654831914,-0.16530418395996094,0.013910021632909692
