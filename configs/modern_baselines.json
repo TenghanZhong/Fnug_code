@@ -1,5 +1,5 @@
 {
-  "run_name": "fnug_modern_fam3_cost3_seed3_m4",
+  "run_name": "fnug_modern_noreg_fam3_cost3_seed3_m4",
   "candidate_rules": [
     "underlying",
     "atm_call30",
@@ -59,7 +59,7 @@
   "trust_gate_init_bias": -2.0,
   "trust_gate_temp": 1.0,
   "lambda_trust_l1": 0.01,
-  "lambda_regime_excess_cvar": 0.25,
+  "lambda_regime_excess_cvar": 0.0,
   "lambda_aux_risk": 0.05,
   "modern_baselines": [
     "ivgrid",

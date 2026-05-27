@@ -60,6 +60,7 @@ METHOD_DIRS = {
 }
 
 MODERN_BASELINE_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
+IVGRID_BASELINE_RUN = "fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8"
 
 # Dictionary keys are separate from legend labels.
 MODERN_BASELINES = {
@@ -287,8 +288,9 @@ def ls_case_panel_path(root: Path, liability: str, cost_bps: int, seed: int) -> 
 
 def baseline_case_panel_path(root: Path, baseline_label: str, liability: str, cost_bps: int, seed: int) -> Path:
     baseline_dir = MODERN_BASELINES[baseline_label]
+    run_dir = IVGRID_BASELINE_RUN if baseline_label == "IVGrid-HedgeSet" else MODERN_BASELINE_RUN
     return (
-        root / "results" / "hedgeset" / MODERN_BASELINE_RUN /
+        root / "results" / "hedgeset" / run_dir /
         liability / f"cost_{cost_bps}bps" / "modern_baselines" /
         baseline_dir / "scope_full" / f"seed_{seed}" / "test_episode_panel.csv"
     )

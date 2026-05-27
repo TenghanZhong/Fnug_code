@@ -1,5 +1,5 @@
 {
-  "run_name": "fnug_main_fam3_cost3_seed3",
+  "run_name": "fnug_final_noreg_fam3_cost3_seed3",
   "candidate_rules": [
     "underlying",
     "atm_call30",
@@ -59,7 +59,7 @@
   "trust_gate_init_bias": -2.0,
   "trust_gate_temp": 1.0,
   "lambda_trust_l1": 0.01,
-  "lambda_regime_excess_cvar": 0.25,
+  "lambda_regime_excess_cvar": 0.0,
   "lambda_aux_risk": 0.05,
   "val_score_weights": {
     "cvar95": 1.0,

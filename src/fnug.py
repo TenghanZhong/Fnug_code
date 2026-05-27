@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 class DataConfig:
     data_dir: str = field(default_factory=lambda: os.environ.get("FNUG_DATA_DIR", "data/raw"))
     cache_dir: str = "cache"           # preprocessed daily quote sets
-    results_dir: str = "results"       # model checkpoints + eval output
+    results_dir: str = field(default_factory=lambda: os.environ.get("FNUG_RESULTS_DIR", "results"))
 
     years: List[int] = field(default_factory=lambda: list(range(2018, 2026)))
     option_file_fmt: str = "data_{year}.parquet"
@@ -5788,7 +5788,10 @@ def _bs_delta_np(F: float, K: float, tau: float, sigma: float, D: float, S: floa
 
 
 def _parse_list_arg(text: str) -> List[str]:
-    return [x.strip() for x in str(text).split(",") if x.strip()]
+    raw = str(text).strip()
+    if raw.lower() in {"", "none", "no", "off", "false", "0"}:
+        return []
+    return [x.strip() for x in raw.split(",") if x.strip()]
 
 
 def _parse_float_list(text: str) -> List[float]:
