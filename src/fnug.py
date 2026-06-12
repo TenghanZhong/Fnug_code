@@ -5704,7 +5704,7 @@ def run_multi_seed(
 
 @dataclass
 class HedgingConfig:
-    cache_dir: str = "cache_hedging"
+    cache_dir: str = field(default_factory=lambda: os.environ.get("FNUG_HEDGE_CACHE_DIR", "cache_hedging"))
     results_dir: str = field(default_factory=lambda: os.path.join(DATA_CFG.results_dir, "hedging"))
 
     horizon: int = 5
@@ -6223,7 +6223,7 @@ def _build_one_episode(
 
     S_path, L_path = [], []
     delta_path, k_path, tau_path = [], [], []
-    latent_states, summary_states, grid_states, side_states, liab_states = [], [], [], [], []
+    latent_states, latent_summary_states, summary_states, grid_states, side_states, liab_states = [], [], [], [], [], []
 
     L0 = None
     for idx, d in enumerate(path_dates):
@@ -6263,10 +6263,15 @@ def _build_one_episode(
             liab = _liability_feat(k_t, tau_t, cp_code, delta_t, vega_t, L0, L_t)
 
             latent_state = np.concatenate([z, side, z * side[0], z * side[1], liab], axis=0).astype(np.float32)
+            latent_summary_state = np.concatenate(
+                [z, summary, side, z * side[0], z * side[1], summary * side[0], summary * side[1], liab],
+                axis=0,
+            ).astype(np.float32)
             summary_state = np.concatenate([summary, side, liab], axis=0).astype(np.float32)
             grid_state = np.concatenate([grid, side, liab], axis=0).astype(np.float32)
 
             latent_states.append(latent_state)
+            latent_summary_states.append(latent_summary_state)
             summary_states.append(summary_state)
             grid_states.append(grid_state)
             side_states.append(side)
@@ -6295,6 +6300,7 @@ def _build_one_episode(
         "tau": np.asarray(tau_path, dtype=np.float32),
         "scale": float(scale),
         "latent_state": np.asarray(latent_states, dtype=np.float32),
+        "latent_summary_state": np.asarray(latent_summary_states, dtype=np.float32),
         "summary_state": np.asarray(summary_states, dtype=np.float32),
         "grid_state": np.asarray(grid_states, dtype=np.float32),
         "dates": [str(pd.Timestamp(d).date()) for d in path_dates],
@@ -6985,7 +6991,7 @@ def run_hedging_pipeline(
 
 @dataclass
 class HedgeSetConfig:
-    cache_dir: str = "cache_hedging"
+    cache_dir: str = field(default_factory=lambda: os.environ.get("FNUG_HEDGE_CACHE_DIR", "cache_hedging"))
     results_dir: str = field(default_factory=lambda: os.path.join(DATA_CFG.results_dir, "hedgeset"))
 
     horizon: int = 5
@@ -7423,7 +7429,7 @@ def _hs_build_one_episode(
     liability_keys = _hs_liability_keys(sel, family)
     S_path, L_path = [], []
     liab_delta, liab_vega, liab_k, liab_tau = [], [], [], []
-    latent_states, summary_states, grid_states, setonly_states = [], [], [], []
+    latent_states, latent_summary_states, summary_states, grid_states, setonly_states = [], [], [], [], []
     regime_raw: Dict[str, float] = {}
     L0 = None
     for idx, d in enumerate(path_dates):
@@ -7479,6 +7485,12 @@ def _hs_build_one_episode(
                 }
             liab = _liability_feat(k_t, tau_t, cp_code, delta_t, vega_t, float(L0), L_t)
             latent_states.append(np.concatenate([z, side, z * side[0], z * side[1], liab], axis=0).astype(np.float32))
+            latent_summary_states.append(
+                np.concatenate(
+                    [z, summary, side, z * side[0], z * side[1], summary * side[0], summary * side[1], liab],
+                    axis=0,
+                ).astype(np.float32)
+            )
             summary_states.append(np.concatenate([summary, side, liab], axis=0).astype(np.float32))
             grid_states.append(np.concatenate([grid, side, liab], axis=0).astype(np.float32))
             if setonly_cols:
@@ -7533,6 +7545,7 @@ def _hs_build_one_episode(
         "inst_kinds": inst_kinds,
         "scale": float(max(float(L0), 1.0)),
         "latent_state": np.asarray(latent_states, dtype=np.float32),
+        "latent_summary_state": np.asarray(latent_summary_states, dtype=np.float32),
         "summary_state": np.asarray(summary_states, dtype=np.float32),
         "grid_state": np.asarray(grid_states, dtype=np.float32),
         **({"setonly_state": np.asarray(setonly_states, dtype=np.float32),
