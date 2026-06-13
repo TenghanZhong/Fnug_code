@@ -7130,6 +7130,12 @@ class HedgeSetConfig:
     val_score_worst_regime_excess_weight: float = 0.0
     val_score_factor_weight: float = 0.10
     val_score_trust_weight: float = 0.02
+    val_feasible_excess_cvar95_max: float = 0.012
+    val_feasible_excess_cvar95_grid: List[float] = field(default_factory=lambda: [0.007, 0.008, 0.009, 0.012])
+    val_feasible_turnover_max: Optional[float] = None
+    val_feasible_tc_norm_max: Optional[float] = None
+    val_feasible_delta_exposure_max: float = 1e-4
+    val_feasible_vega_exposure_max: float = 1e-4
 
     # Ambiguity-aware regime-robust extension.  This is disabled by default and
     # activated through the "ambiguous" policy variant or the CLI switch below.
@@ -8819,9 +8825,36 @@ def _hedgeset_validation_score(metrics: dict, cfg: HedgeSetConfig) -> float:
     score += float(getattr(cfg, "val_score_worst_regime_excess_weight", 0.50)) * float(metrics.get("worst_regime_excess_cvar_95", metrics.get("excess_cvar_95", 0.0)))
     score += float(getattr(cfg, "val_score_factor_weight", 0.10)) * float(metrics.get("mean_residual_factor_l2", 0.0))
     score += float(getattr(cfg, "val_score_trust_weight", 0.02)) * float(metrics.get("mean_global_trust", 0.0))
-    if bool(getattr(cfg, "ambiguity_aware", False)):
-        score += float(getattr(cfg, "val_score_worst_regime_weight", 0.25)) * float(metrics.get("worst_regime_cvar_95", metrics.get("cvar_95", np.inf)))
+    score += float(getattr(cfg, "val_score_worst_regime_weight", 0.25)) * float(metrics.get("worst_regime_cvar_95", metrics.get("cvar_95", np.inf)))
     return float(score)
+
+
+def _hedgeset_feasible_checkpoint(metrics: dict, cfg: HedgeSetConfig, excess_cvar95_max: Optional[float] = None) -> bool:
+    excess_max = float(getattr(cfg, "val_feasible_excess_cvar95_max", 0.012) if excess_cvar95_max is None else excess_cvar95_max)
+    checks = [
+        float(metrics.get("excess_cvar_95", np.inf)) <= excess_max,
+        float(metrics.get("mean_abs_residual_delta_exposure", np.inf)) <= float(getattr(cfg, "val_feasible_delta_exposure_max", 1e-4)),
+        float(metrics.get("mean_abs_residual_vega_exposure", np.inf)) <= float(getattr(cfg, "val_feasible_vega_exposure_max", 1e-4)),
+    ]
+    turnover_max = getattr(cfg, "val_feasible_turnover_max", None)
+    if turnover_max is not None:
+        checks.append(float(metrics.get("mean_turnover", np.inf)) <= float(turnover_max))
+    tc_norm_max = getattr(cfg, "val_feasible_tc_norm_max", None)
+    if tc_norm_max is not None:
+        checks.append(float(metrics.get("mean_tc_norm", np.inf)) <= float(tc_norm_max))
+    return all(bool(x) for x in checks)
+
+
+def _hedgeset_feasible_risk_score(metrics: dict) -> float:
+    return float(metrics.get("cvar_95", np.inf)) + 0.25 * float(metrics.get("cvar_99", metrics.get("cvar_95", np.inf))) + 0.25 * float(metrics.get("worst_regime_cvar_95", metrics.get("cvar_95", np.inf)))
+
+
+def _hedgeset_optional_float(value: Any) -> Optional[float]:
+    return None if value is None else float(value)
+
+
+def _hedgeset_threshold_tag(value: float) -> str:
+    return f"{float(value):.3f}".replace(".", "p")
 
 
 def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, cost_bps: float, cfg: HedgeSetConfig, out_dir: str, seed: int = 42, policy_variant: str = "full", action_scope: str = "full", candidate_run: Optional[str] = None, rules_tag: Optional[str] = None) -> Tuple[dict, pd.DataFrame]:
@@ -8856,6 +8889,15 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(cfg.epochs, 1), eta_min=cfg.lr * 0.05)
     best_val = float("inf")
     best_state = None
+    best_feasible_val = float("inf")
+    best_feasible_state = None
+    best_feasible_metrics = None
+    best_feasible_epoch = None
+    feasible_thresholds = sorted({float(x) for x in getattr(cfg, "val_feasible_excess_cvar95_grid", [0.012]) if float(x) > 0})
+    best_feasible_by_threshold = {
+        th: {"score": float("inf"), "state": None, "metrics": None, "epoch": None}
+        for th in feasible_thresholds
+    }
     bad_epochs = 0
     history = []
     for epoch in range(cfg.epochs):
@@ -8880,18 +8922,69 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
         agent.eval()
         val_metrics, _ = evaluate_hedgeset_agent(agent, val_ld, cfg, cost_bps, "Policy", family, state_mode, mode="policy")
         val_score = _hedgeset_validation_score(val_metrics, cfg)
-        row = {"epoch": epoch + 1, "phase": cfg.current_training_phase, "lr": opt.param_groups[0]["lr"], **{f"train_{k}": v for k, v in acc.items()}, **{f"val_{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))}, "val_selection_score": val_score}
+        val_feasible = _hedgeset_feasible_checkpoint(val_metrics, cfg)
+        val_feasible_score = _hedgeset_feasible_risk_score(val_metrics)
+        row = {"epoch": epoch + 1, "phase": cfg.current_training_phase, "lr": opt.param_groups[0]["lr"], **{f"train_{k}": v for k, v in acc.items()}, **{f"val_{k}": v for k, v in val_metrics.items() if isinstance(v, (int, float))}, "val_selection_score": val_score, "val_feasible": val_feasible, "val_feasible_risk_score": val_feasible_score}
+        for th in feasible_thresholds:
+            row[f"val_feasible_excess_{_hedgeset_threshold_tag(th)}"] = _hedgeset_feasible_checkpoint(val_metrics, cfg, excess_cvar95_max=th)
         history.append(row)
         if (epoch + 1) % 25 == 0 or epoch == 0 or cfg.current_training_phase == "imitation":
             logger.info(
                 f"[hedgeset {family}/{state_mode}/cost={cost_bps:g} ep {epoch+1:03d} {cfg.current_training_phase}] "
                 f"train_cvar={acc['cvar']:.4f} imit={acc['imitation']:.4f} val_score={val_score:.4f} val_cvar95={val_metrics.get('cvar_95', np.nan):.4f}"
             )
+        if val_feasible and val_feasible_score < best_feasible_val - cfg.min_delta:
+            best_feasible_val = val_feasible_score
+            best_feasible_state = copy.deepcopy(agent.state_dict())
+            best_feasible_metrics = dict(val_metrics)
+            best_feasible_epoch = epoch + 1
+            torch.save(
+                {
+                    "agent": best_feasible_state,
+                    "epoch": best_feasible_epoch,
+                    "best_feasible_score": best_feasible_val,
+                    "best_val_metrics": best_feasible_metrics,
+                    "feasible_constraints": {
+                        "excess_cvar_95": float(getattr(cfg, "val_feasible_excess_cvar95_max", 0.012)),
+                        "mean_turnover": _hedgeset_optional_float(getattr(cfg, "val_feasible_turnover_max", None)),
+                        "mean_tc_norm": _hedgeset_optional_float(getattr(cfg, "val_feasible_tc_norm_max", None)),
+                        "mean_abs_residual_delta_exposure": float(getattr(cfg, "val_feasible_delta_exposure_max", 1e-4)),
+                        "mean_abs_residual_vega_exposure": float(getattr(cfg, "val_feasible_vega_exposure_max", 1e-4)),
+                    },
+                },
+                os.path.join(out_dir, "best_feasible_policy.pt"),
+            )
+        for th in feasible_thresholds:
+            if not _hedgeset_feasible_checkpoint(val_metrics, cfg, excess_cvar95_max=th):
+                continue
+            slot = best_feasible_by_threshold[th]
+            if val_feasible_score < float(slot["score"]) - cfg.min_delta:
+                slot["score"] = val_feasible_score
+                slot["state"] = copy.deepcopy(agent.state_dict())
+                slot["metrics"] = dict(val_metrics)
+                slot["epoch"] = epoch + 1
+                torch.save(
+                    {
+                        "agent": slot["state"],
+                        "epoch": slot["epoch"],
+                        "best_feasible_score": slot["score"],
+                        "best_val_metrics": slot["metrics"],
+                        "feasible_constraints": {
+                            "excess_cvar_95": th,
+                            "mean_turnover": _hedgeset_optional_float(getattr(cfg, "val_feasible_turnover_max", None)),
+                            "mean_tc_norm": _hedgeset_optional_float(getattr(cfg, "val_feasible_tc_norm_max", None)),
+                            "mean_abs_residual_delta_exposure": float(getattr(cfg, "val_feasible_delta_exposure_max", 1e-4)),
+                            "mean_abs_residual_vega_exposure": float(getattr(cfg, "val_feasible_vega_exposure_max", 1e-4)),
+                        },
+                    },
+                    os.path.join(out_dir, f"best_feasible_policy_excess_{_hedgeset_threshold_tag(th)}.pt"),
+                )
         if val_score < best_val - cfg.min_delta:
             best_val = val_score
             best_state = copy.deepcopy(agent.state_dict())
             bad_epochs = 0
             torch.save({"agent": best_state, "epoch": epoch + 1, "best_val_score": best_val, "best_val_metrics": val_metrics}, os.path.join(out_dir, "best_policy.pt"))
+            torch.save({"agent": best_state, "epoch": epoch + 1, "best_val_score": best_val, "best_val_metrics": val_metrics}, os.path.join(out_dir, "best_score_policy.pt"))
         else:
             # Do not early-stop during imitation warm-start.
             if cfg.current_training_phase != "imitation":
@@ -8916,8 +9009,37 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
     if not model_label:
         model_label = f"{prefix}-{state_mode}{suffix}{scope_suffix}"
     test_metrics, test_panel = evaluate_hedgeset_agent(agent, test_ld, cfg, cost_bps, model_label, family, state_mode, mode="policy")
+    test_metrics["checkpoint_selection"] = "best_score"
+    test_panel["checkpoint_selection"] = "best_score"
     test_panel.to_csv(os.path.join(out_dir, "test_episode_panel.csv"), index=False)
     pd.DataFrame([test_metrics]).to_csv(os.path.join(out_dir, "test_metrics.csv"), index=False)
+    checkpoint_rows = [dict(test_metrics)]
+    if best_feasible_state is not None:
+        agent.load_state_dict(best_feasible_state)
+        feasible_metrics, feasible_panel = evaluate_hedgeset_agent(agent, test_ld, cfg, cost_bps, model_label, family, state_mode, mode="policy")
+        feasible_metrics["checkpoint_selection"] = "best_feasible"
+        feasible_metrics["best_feasible_epoch"] = best_feasible_epoch
+        feasible_metrics["best_feasible_val_risk_score"] = best_feasible_val
+        feasible_panel["checkpoint_selection"] = "best_feasible"
+        feasible_panel.to_csv(os.path.join(out_dir, "test_episode_panel_best_feasible.csv"), index=False)
+        pd.DataFrame([feasible_metrics]).to_csv(os.path.join(out_dir, "test_metrics_best_feasible.csv"), index=False)
+        checkpoint_rows.append(dict(feasible_metrics))
+    for th in feasible_thresholds:
+        slot = best_feasible_by_threshold.get(th, {})
+        if slot.get("state") is None:
+            continue
+        agent.load_state_dict(slot["state"])
+        th_metrics, th_panel = evaluate_hedgeset_agent(agent, test_ld, cfg, cost_bps, model_label, family, state_mode, mode="policy")
+        tag = _hedgeset_threshold_tag(th)
+        th_metrics["checkpoint_selection"] = f"best_feasible_excess_{tag}"
+        th_metrics["best_feasible_epoch"] = slot.get("epoch")
+        th_metrics["best_feasible_val_risk_score"] = slot.get("score")
+        th_metrics["best_feasible_excess_cvar95_max"] = th
+        th_panel["checkpoint_selection"] = f"best_feasible_excess_{tag}"
+        th_panel.to_csv(os.path.join(out_dir, f"test_episode_panel_best_feasible_excess_{tag}.csv"), index=False)
+        pd.DataFrame([th_metrics]).to_csv(os.path.join(out_dir, f"test_metrics_best_feasible_excess_{tag}.csv"), index=False)
+        checkpoint_rows.append(dict(th_metrics))
+    pd.DataFrame(checkpoint_rows).to_csv(os.path.join(out_dir, "checkpoint_comparison_metrics.csv"), index=False)
     return test_metrics, test_panel
 
 
@@ -10129,6 +10251,15 @@ def run_hedgeset_pipeline(
     lambda_regime_excess_cvar: Optional[float] = None,
     lambda_aux_risk: Optional[float] = None,
     val_score_worst_regime_excess_weight: Optional[float] = None,
+    val_feasible_excess_cvar95_max: Optional[float] = None,
+    val_feasible_excess_cvar95_grid: Optional[List[float]] = None,
+    val_feasible_turnover_max: Optional[float] = None,
+    val_feasible_tc_norm_max: Optional[float] = None,
+    val_feasible_delta_exposure_max: Optional[float] = None,
+    val_feasible_vega_exposure_max: Optional[float] = None,
+    val_score_excess_cvar95_weight: Optional[float] = None,
+    val_score_excess_cvar99_weight: Optional[float] = None,
+    val_score_excess_relu_weight: Optional[float] = None,
     modern_baselines: Optional[List[str]] = None,
     ivgrid_state_mode: str = "grid",
     ntb_state_mode: str = "summary",
@@ -10200,6 +10331,24 @@ def run_hedgeset_pipeline(
         cfg.lambda_aux_risk = float(lambda_aux_risk)
     if val_score_worst_regime_excess_weight is not None:
         cfg.val_score_worst_regime_excess_weight = float(val_score_worst_regime_excess_weight)
+    if val_feasible_excess_cvar95_max is not None:
+        cfg.val_feasible_excess_cvar95_max = float(val_feasible_excess_cvar95_max)
+    if val_feasible_excess_cvar95_grid:
+        cfg.val_feasible_excess_cvar95_grid = [float(x) for x in val_feasible_excess_cvar95_grid]
+    if val_feasible_turnover_max is not None:
+        cfg.val_feasible_turnover_max = float(val_feasible_turnover_max)
+    if val_feasible_tc_norm_max is not None:
+        cfg.val_feasible_tc_norm_max = float(val_feasible_tc_norm_max)
+    if val_feasible_delta_exposure_max is not None:
+        cfg.val_feasible_delta_exposure_max = float(val_feasible_delta_exposure_max)
+    if val_feasible_vega_exposure_max is not None:
+        cfg.val_feasible_vega_exposure_max = float(val_feasible_vega_exposure_max)
+    if val_score_excess_cvar95_weight is not None:
+        cfg.val_score_excess_cvar95_weight = float(val_score_excess_cvar95_weight)
+    if val_score_excess_cvar99_weight is not None:
+        cfg.val_score_excess_cvar99_weight = float(val_score_excess_cvar99_weight)
+    if val_score_excess_relu_weight is not None:
+        cfg.val_score_excess_relu_weight = float(val_score_excess_relu_weight)
     cfg.modern_baselines = _normalize_modern_baseline_names(modern_baselines or [])
     cfg.ivgrid_baseline_state_mode = str(ivgrid_state_mode)
     cfg.ntb_ls_state_mode = str(ntb_state_mode)
@@ -10282,6 +10431,12 @@ def run_hedgeset_pipeline(
             "lambda_trust_l1": cfg.lambda_trust_l1,
             "lambda_regime_excess_cvar": cfg.lambda_regime_excess_cvar,
             "lambda_aux_risk": cfg.lambda_aux_risk,
+            "val_feasible_excess_cvar95_max": cfg.val_feasible_excess_cvar95_max,
+            "val_feasible_excess_cvar95_grid": cfg.val_feasible_excess_cvar95_grid,
+            "val_feasible_turnover_max": cfg.val_feasible_turnover_max,
+            "val_feasible_tc_norm_max": cfg.val_feasible_tc_norm_max,
+            "val_feasible_delta_exposure_max": cfg.val_feasible_delta_exposure_max,
+            "val_feasible_vega_exposure_max": cfg.val_feasible_vega_exposure_max,
             "modern_baselines": cfg.modern_baselines,
             "ivgrid_baseline_state_mode": cfg.ivgrid_baseline_state_mode,
             "ntb_ls_state_mode": cfg.ntb_ls_state_mode,
@@ -10632,6 +10787,24 @@ def main():
                         help="Penalty on static worst-regime CVaR of excess loss over the LS base. Default 0 for the final specification.")
     parser.add_argument("--hedgeset-val-score-worst-regime-excess-weight", type=float, default=0.0,
                         help="Validation-score weight on worst-regime excess CVaR. Default 0 for the final no-static-regime-excess design.")
+    parser.add_argument("--hedgeset-val-feasible-excess-cvar95-max", type=float, default=None,
+                        help="Maximum validation excess CVaR95 for the generic feasible checkpoint.")
+    parser.add_argument("--hedgeset-val-feasible-excess-cvar95-grid", type=str, default="0.007,0.008,0.009,0.012",
+                        help="Comma-separated validation excess CVaR95 budgets for feasible checkpoint frontier saving.")
+    parser.add_argument("--hedgeset-val-feasible-turnover-max", type=float, default=None,
+                        help="Maximum validation turnover for feasible checkpoint selection.")
+    parser.add_argument("--hedgeset-val-feasible-tc-norm-max", type=float, default=None,
+                        help="Maximum normalized validation transaction cost for feasible checkpoint selection.")
+    parser.add_argument("--hedgeset-val-feasible-delta-exposure-max", type=float, default=None,
+                        help="Maximum validation residual delta exposure for feasible checkpoint selection.")
+    parser.add_argument("--hedgeset-val-feasible-vega-exposure-max", type=float, default=None,
+                        help="Maximum validation residual vega exposure for feasible checkpoint selection.")
+    parser.add_argument("--hedgeset-val-score-excess-cvar95-weight", type=float, default=None,
+                        help="Validation-score weight on excess CVaR95.")
+    parser.add_argument("--hedgeset-val-score-excess-cvar99-weight", type=float, default=None,
+                        help="Validation-score weight on excess CVaR99.")
+    parser.add_argument("--hedgeset-val-score-excess-relu-weight", type=float, default=None,
+                        help="Validation-score weight on mean positive excess loss.")
     parser.add_argument("--hedgeset-lambda-aux-risk", type=float, default=0.05,
                         help="Weight on auxiliary transition/base-risk prediction loss.")
     args = parser.parse_args()
@@ -10704,6 +10877,15 @@ def main():
             lambda_regime_excess_cvar=args.hedgeset_lambda_regime_excess_cvar,
             lambda_aux_risk=args.hedgeset_lambda_aux_risk,
             val_score_worst_regime_excess_weight=args.hedgeset_val_score_worst_regime_excess_weight,
+            val_feasible_excess_cvar95_max=args.hedgeset_val_feasible_excess_cvar95_max,
+            val_feasible_excess_cvar95_grid=_parse_float_list(args.hedgeset_val_feasible_excess_cvar95_grid),
+            val_feasible_turnover_max=args.hedgeset_val_feasible_turnover_max,
+            val_feasible_tc_norm_max=args.hedgeset_val_feasible_tc_norm_max,
+            val_feasible_delta_exposure_max=args.hedgeset_val_feasible_delta_exposure_max,
+            val_feasible_vega_exposure_max=args.hedgeset_val_feasible_vega_exposure_max,
+            val_score_excess_cvar95_weight=args.hedgeset_val_score_excess_cvar95_weight,
+            val_score_excess_cvar99_weight=args.hedgeset_val_score_excess_cvar99_weight,
+            val_score_excess_relu_weight=args.hedgeset_val_score_excess_relu_weight,
             modern_baselines=_parse_list_arg(args.hedgeset_modern_baselines),
             ivgrid_state_mode=args.hedgeset_ivgrid_state_mode,
             ntb_state_mode=args.hedgeset_ntb_state_mode,

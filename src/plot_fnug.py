@@ -53,11 +53,13 @@ mpl.rcParams.update({
 # Run directory names
 # -----------------------------------------------------------------------------
 METHOD_DIRS = {
-    "FNUG": "fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8",
+    "FNUG": "budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8",
     # Optional hard-LS-only run. Figure 2/3 use it if it exists.
     # Figure 4 reads LSDeltaVega from the static baseline panel.
     "LSDeltaVega": "A5_hardls_only_1eaa24b3f8",
 }
+FNUG_PANEL_FILE = "test_episode_panel_best_feasible_excess_0p008.csv"
+FNUG_COMBINED_PANEL_FILE = "e1008_final_combined_episode_panel.csv"
 
 MODERN_BASELINE_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
 IVGRID_BASELINE_RUN = "fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8"
@@ -76,6 +78,11 @@ DISPLAY_LABELS = {
     "NTB-LS": "NTB-LS",
     "CVaR-HedgeSet": "CVaR-HedgeSet",
 }
+
+
+def write_csv(df: pd.DataFrame, path: Path, **kwargs) -> None:
+    """Write deterministic LF-terminated CSVs for clean git diffs."""
+    df.to_csv(path, index=False, lineterminator="\n", **kwargs)
 
 FIG2_ORDER = [
     "FNUG",
@@ -274,7 +281,7 @@ def fnug_case_panel_path(root: Path, liability: str, cost_bps: int, seed: int) -
     return (
         root / "results" / "hedgeset" / METHOD_DIRS["FNUG"] /
         liability / f"cost_{cost_bps}bps" / "variant_full" / "scope_full" /
-        "policy_latent" / f"seed_{seed}" / "test_episode_panel.csv"
+        "policy_latent" / f"seed_{seed}" / FNUG_PANEL_FILE
     )
 
 
@@ -304,6 +311,9 @@ def static_ls_panel_path(root: Path, liability: str, cost_bps: int) -> Path:
 
 
 def fnug_combined_panel_path(root: Path) -> Path:
+    analysis_path = root / "results" / "analysis" / FNUG_COMBINED_PANEL_FILE
+    if analysis_path.exists():
+        return analysis_path
     return root / "results" / "hedgeset" / METHOD_DIRS["FNUG"] / "hedgeset_test_episode_panel_all.csv"
 
 # -----------------------------------------------------------------------------
@@ -490,7 +500,7 @@ def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
             "CVaR99": cvar99,
             "n": int(np.isfinite(panels[label]).sum()),
         })
-    pd.DataFrame(rows).to_csv(outdir / "figure2_tail_loss_summary.csv", index=False)
+    write_csv(pd.DataFrame(rows), outdir / "figure2_tail_loss_summary.csv")
 
 # -----------------------------------------------------------------------------
 # Figure 3: paired excess loss
@@ -591,15 +601,15 @@ def make_figure3_paired_excess_vs_ls(root: Path, outdir: Path, sort_mode: str = 
     save_png_pdf(fig, outdir, "figure3_paired_excess_loss_vs_ls")
     plt.close(fig)
 
-    pd.DataFrame([{
+    write_csv(pd.DataFrame([{
         "n_episodes": len(tmp),
         "mean_excess_loss": float(np.nanmean(y)),
         "median_excess_loss": float(np.nanmedian(y)),
         "share_fnug_better": float(np.mean(y < 0)),
         "share_fnug_worse": float(np.mean(y > 0)),
         "share_tie": float(np.mean(np.isclose(y, 0.0))),
-    }]).to_csv(outdir / "figure3_paired_excess_summary.csv", index=False)
-    tmp.to_csv(outdir / "figure3_paired_excess_data.csv", index=False)
+    }]), outdir / "figure3_paired_excess_summary.csv")
+    write_csv(tmp, outdir / "figure3_paired_excess_data.csv")
 
 # -----------------------------------------------------------------------------
 # Figure 4: cost x seed robustness heatmap
@@ -688,7 +698,7 @@ def make_figure4_heatmap(root: Path, outdir: Path) -> None:
 
     save_png_pdf(fig, outdir, "figure4_cost_seed_robustness_heatmap")
     plt.close(fig)
-    pd.DataFrame(rows).to_csv(outdir / "figure4_heatmap_values.csv", index=False)
+    write_csv(pd.DataFrame(rows), outdir / "figure4_heatmap_values.csv")
 
 # -----------------------------------------------------------------------------
 # Figure 5: residual diagnostics
@@ -786,16 +796,27 @@ def make_figure5_residual_diagnostics(root: Path, outdir: Path) -> None:
         agg_cols[factor_l2_col] = ["mean", "median", "std"]
     if excess_loss_col is not None:
         agg_cols[excess_loss_col] = ["mean", "median", "std"]
-    df.groupby(regime_col).agg(agg_cols).to_csv(outdir / "figure5_regime_diagnostic_summary.csv")
+    df.groupby(regime_col).agg(agg_cols).to_csv(
+        outdir / "figure5_regime_diagnostic_summary.csv",
+        lineterminator="\n",
+    )
 
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 def main() -> None:
+    global FNUG_PANEL_FILE, FNUG_COMBINED_PANEL_FILE
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Path to project root containing results/hedgeset, or directly to results")
     parser.add_argument("--outdir", default="paper_figures", help="Output directory for figures")
+    parser.add_argument("--fnug-run", default=METHOD_DIRS["FNUG"], help="FNUG run directory under results/hedgeset")
+    parser.add_argument("--fnug-panel-file", default=FNUG_PANEL_FILE, help="Per-cell FNUG episode panel filename")
+    parser.add_argument("--fnug-combined-panel-file", default=FNUG_COMBINED_PANEL_FILE, help="Analysis-level combined FNUG panel filename")
     args = parser.parse_args()
+
+    METHOD_DIRS["FNUG"] = args.fnug_run
+    FNUG_PANEL_FILE = args.fnug_panel_file
+    FNUG_COMBINED_PANEL_FILE = args.fnug_combined_panel_file
 
     root = resolve_results_root(args.input)
     outdir = Path(args.outdir)

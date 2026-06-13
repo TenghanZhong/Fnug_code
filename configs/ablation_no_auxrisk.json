@@ -1,5 +1,5 @@
 {
-  "run_name": "A4_no_auxrisk",
+  "run_name": "e1008_ablation_no_auxrisk",
   "candidate_rules": [
     "underlying",
     "atm_call30",
@@ -24,7 +24,9 @@
     2.0
   ],
   "seeds": [
-    42
+    1,
+    42,
+    2026
   ],
   "policy_variants": [
     "full"
@@ -38,7 +40,7 @@
   "ambiguity_min_count": 2,
   "regime_bins": 3,
   "residual_base": "ls_deltavega",
-  "residual_scale": 0.15,
+  "residual_scale": 0.10,
   "imitation_epochs": 10,
   "imitation_lambda": 1.0,
   "finetune_imitation_lambda": 0.02,
@@ -50,11 +52,23 @@
   "factor_neutral_ridge": 0.0001,
   "lambda_factor_neutral": 0.1,
   "use_global_trust_gate": true,
-  "trust_gate_init_bias": -2.0,
+  "trust_gate_init_bias": -1.0,
   "trust_gate_temp": 1.0,
-  "lambda_trust_l1": 0.01,
+  "lambda_trust_l1": 0.003,
   "lambda_regime_excess_cvar": 0.0,
   "lambda_aux_risk": 0.0,
+  "val_feasible_excess_cvar95_max": 0.012,
+  "val_feasible_excess_cvar95_grid": [
+    0.007,
+    0.008,
+    0.009,
+    0.012
+  ],
+  "final_checkpoint_selection": "best_feasible_excess_0p008",
+  "val_feasible_turnover_max": null,
+  "val_feasible_tc_norm_max": null,
+  "val_feasible_delta_exposure_max": 0.0001,
+  "val_feasible_vega_exposure_max": 0.0001,
   "val_score_weights": {
     "cvar95": 1.0,
     "cvar99": 0.25,
