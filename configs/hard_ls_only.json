@@ -1,5 +1,5 @@
 {
-  "run_name": "A5_hardls_only",
+  "run_name": "hard_ls_only",
   "candidate_rules": [
     "underlying",
     "atm_call30",

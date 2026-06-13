@@ -7,32 +7,265 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from rebuild_final_noreg_analysis import (
-    BOOT_METRICS,
-    COMPARATORS,
-    FNUG_MODEL,
-    LEGACY_MODERN_MODELS,
-    build_bootstrap,
-    build_ivgrid_matched_cell_summary,
-    hedgeset_root,
-    only_models,
-    read_csv,
-    read_optional_run,
-    read_run,
-)
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
-E1008_RUN = "budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8"
+E1008_RUN = "fnug_e1008_final_fam3_cost3_seed3_1eaa24b3f8"
 E1008_SELECTION = "best_feasible_excess_0p008"
-LEGACY_MODERN_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
-IVGRID_NOREG_RUN = "fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8"
-IVGRID_NOREG_EXTRA_RUNS = ["fnug_modern_noreg_straddle_m4_1eaa24b3f8"]
+SUPPORTING_MODERN_RUN = "fnug_modern_supporting_fam3_cost3_seed3_m4_1eaa24b3f8"
+IVGRID_FINAL_OBJECTIVE_RUN = "fnug_modern_finalobjective_fam3_cost3_seed3_m4_1eaa24b3f8"
+IVGRID_FINAL_OBJECTIVE_EXTRA_RUNS = ["fnug_modern_finalobjective_straddle_m4_1eaa24b3f8"]
 QIAO_RUN_CANDIDATES = [
-    "paper_add2_qiao_m4_20260526_1eaa24b3f8",
+    "qiao_residual_ls_m4_1eaa24b3f8",
     "qiao_ls_m4_1eaa24b3f8",
 ]
+
+FNUG_MODEL = "HedgeSet-latent"
+SUPPORTING_MODERN_MODELS = ["NTB-LS", "CVaR-HedgeSet"]
+COMPARATORS = [
+    "LSDeltaVega",
+    "IVGrid-HedgeSet",
+    "QiaoResidual-LS",
+    "NTB-LS",
+    "CVaR-HedgeSet",
+    "SmiledDelta",
+    "NoTradeDelta",
+    "GreedyDeltaVega",
+]
+BOOT_METRICS = [
+    "mean_loss",
+    "cvar_95",
+    "cvar_99",
+    "worst_regime_cvar_95",
+    "shortfall_prob",
+    "mean_turnover",
+    "mean_tc_norm",
+    "excess_cvar_95",
+    "mean_positive_excess",
+]
+
+
+def hedgeset_root(root: Path) -> Path:
+    return root / "results" / "hedgeset"
+
+
+def read_csv(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(path)
+    return pd.read_csv(path)
+
+
+def read_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    run_dir = hedgeset_root(root) / run_name
+    metrics = read_csv(run_dir / "hedgeset_test_metrics_all.csv")
+    panel = read_csv(run_dir / "hedgeset_test_episode_panel_all.csv")
+    return metrics, panel
+
+
+def read_optional_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
+    run_dir = hedgeset_root(root) / run_name
+    metrics_path = run_dir / "hedgeset_test_metrics_all.csv"
+    panel_path = run_dir / "hedgeset_test_episode_panel_all.csv"
+    if not metrics_path.exists() or not panel_path.exists():
+        return None
+    return read_csv(metrics_path), read_csv(panel_path)
+
+
+def only_models(df: pd.DataFrame, models: list[str]) -> pd.DataFrame:
+    return df[df["model"].isin(models)].copy()
+
+
+def _with_case_key(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["cost_bps_key"] = pd.to_numeric(out["cost_bps"], errors="coerce").round(8)
+    out["seed_key"] = pd.to_numeric(out["seed"], errors="coerce").round(0).astype("Int64")
+    return out
+
+
+def build_ivgrid_matched_cell_summary(metrics: pd.DataFrame) -> pd.DataFrame:
+    metric_names = ["cvar_95", "cvar_99", "worst_regime_cvar_95"]
+    cols = ["family", "cost_bps_key", "seed_key", *metric_names]
+    fnug = _with_case_key(metrics[metrics["model"].eq(FNUG_MODEL)])
+    ivgrid = _with_case_key(metrics[metrics["model"].eq("IVGrid-HedgeSet")])
+    matched = fnug[cols].merge(
+        ivgrid[cols],
+        on=["family", "cost_bps_key", "seed_key"],
+        how="inner",
+        suffixes=("_fnug", "_ivgrid"),
+    )
+    rows: list[dict[str, object]] = []
+    families = ",".join(sorted(matched["family"].dropna().astype(str).unique()))
+    for metric in metric_names:
+        diff = pd.to_numeric(matched[f"{metric}_fnug"], errors="coerce") - pd.to_numeric(
+            matched[f"{metric}_ivgrid"], errors="coerce"
+        )
+        diff = diff[np.isfinite(diff)]
+        if diff.empty:
+            continue
+        rows.append({
+            "metric": metric,
+            "n_cells": int(diff.size),
+            "families": families,
+            "fnug_lower_cells": int((diff < 0).sum()),
+            "ivgrid_lower_cells": int((diff > 0).sum()),
+            "ties": int((diff == 0).sum()),
+            "mean_diff_fnug_minus_ivgrid": float(diff.mean()),
+            "median_diff_fnug_minus_ivgrid": float(diff.median()),
+            "min_diff_fnug_minus_ivgrid": float(diff.min()),
+            "max_diff_fnug_minus_ivgrid": float(diff.max()),
+        })
+    return pd.DataFrame(rows)
+
+
+def stat_from_values(x: np.ndarray, metric: str, regimes: np.ndarray | None = None) -> float:
+    x = np.asarray(x, dtype=float)
+    valid = np.isfinite(x)
+    x = x[valid]
+    if regimes is not None:
+        regimes = np.asarray(regimes)[valid]
+    if x.size == 0:
+        return math.nan
+
+    metric = metric.lower()
+    if metric in {"mean_loss", "mean", "mean_turnover", "mean_tc_norm", "mean_positive_excess"}:
+        return float(np.mean(x))
+    if metric == "shortfall_prob":
+        return float(np.mean(x > 0.0))
+    if metric in {"cvar_95", "excess_cvar_95"}:
+        q = np.quantile(x, 0.95)
+        return float(np.mean(x[x >= q]))
+    if metric == "cvar_99":
+        q = np.quantile(x, 0.99)
+        return float(np.mean(x[x >= q]))
+    if metric == "worst_regime_cvar_95":
+        if regimes is None:
+            return math.nan
+        vals = []
+        for rid in pd.unique(pd.Series(regimes).dropna()):
+            xr = x[regimes == rid]
+            if xr.size == 0:
+                continue
+            q = np.quantile(xr, 0.95)
+            vals.append(float(np.mean(xr[xr >= q])))
+        return float(np.nanmax(vals)) if vals else math.nan
+    raise ValueError(f"Unsupported metric: {metric}")
+
+
+def metric_column(metric: str) -> str:
+    if metric == "mean_turnover":
+        return "turnover"
+    if metric == "mean_tc_norm":
+        return "tc_norm"
+    if metric == "excess_cvar_95":
+        return "excess_loss_norm"
+    if metric == "mean_positive_excess":
+        return "relu_excess_loss_norm"
+    return "loss_norm"
+
+
+def filter_case(panel: pd.DataFrame, model: str, family: str, cost: float, seed: float | int) -> pd.DataFrame:
+    m = panel[
+        panel["model"].eq(model)
+        & panel["family"].eq(family)
+        & np.isclose(pd.to_numeric(panel["cost_bps"], errors="coerce"), float(cost))
+    ].copy()
+    if "seed" not in m.columns:
+        return m
+    seeds = pd.to_numeric(m["seed"], errors="coerce")
+    exact = m[np.isclose(seeds, float(seed), equal_nan=False)].copy()
+    if not exact.empty:
+        return exact
+    static = m[seeds.isna()].copy()
+    return static if not static.empty else m
+
+
+def paired_bootstrap(
+    panel: pd.DataFrame,
+    model_a: str,
+    model_b: str,
+    family: str,
+    cost: float,
+    seed: int,
+    metric: str,
+    n_boot: int,
+    rng_seed: int,
+) -> dict[str, object]:
+    col = metric_column(metric)
+    if col not in panel.columns:
+        return {}
+    a = filter_case(panel, model_a, family, cost, seed)
+    b = filter_case(panel, model_b, family, cost, seed)
+    if a.empty or b.empty or col not in a.columns or col not in b.columns:
+        return {}
+
+    a_cols = ["start_date", col]
+    if "regime_id" in a.columns:
+        a_cols.append("regime_id")
+    aa = a[a_cols].rename(columns={col: "a"})
+    bb = b[["start_date", col]].rename(columns={col: "b"})
+    merged = aa.merge(bb, on="start_date", how="inner")
+    if merged.empty:
+        return {}
+
+    xa = pd.to_numeric(merged["a"], errors="coerce").to_numpy(dtype=float)
+    xb = pd.to_numeric(merged["b"], errors="coerce").to_numpy(dtype=float)
+    regimes = merged["regime_id"].to_numpy() if "regime_id" in merged.columns else None
+    obs = stat_from_values(xa, metric, regimes=regimes) - stat_from_values(xb, metric, regimes=regimes)
+    if not np.isfinite(obs):
+        return {}
+
+    rng = np.random.default_rng(rng_seed)
+    n = len(merged)
+    boot = np.empty(n_boot, dtype=float)
+    for r in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        reg_idx = regimes[idx] if regimes is not None else None
+        boot[r] = stat_from_values(xa[idx], metric, reg_idx) - stat_from_values(xb[idx], metric, reg_idx)
+
+    centered = boot - obs
+    pval = float(np.mean(np.abs(centered) >= abs(obs)))
+    return {
+        "model_a": model_a,
+        "model_b": model_b,
+        "family": family,
+        "cost_bps": float(cost),
+        "seed": int(seed),
+        "metric": metric,
+        "n": int(n),
+        "diff": float(obs),
+        "mean_diff": float(obs),
+        "ci95_low": float(np.nanquantile(boot, 0.025)),
+        "ci95_high": float(np.nanquantile(boot, 0.975)),
+        "p_two_sided": min(pval, 1.0),
+    }
+
+
+def build_bootstrap(panel: pd.DataFrame, n_boot: int) -> pd.DataFrame:
+    full = panel[panel["model"].eq(FNUG_MODEL)].copy()
+    rows: list[dict[str, object]] = []
+    cases = full[["family", "cost_bps", "seed"]].drop_duplicates().sort_values(["family", "cost_bps", "seed"])
+    for case in cases.itertuples(index=False):
+        family = str(case.family)
+        cost = float(case.cost_bps)
+        seed = int(case.seed)
+        for comp_idx, comp in enumerate(COMPARATORS):
+            if comp not in set(panel["model"]):
+                continue
+            for metric_idx, metric in enumerate(BOOT_METRICS):
+                row = paired_bootstrap(
+                    panel,
+                    FNUG_MODEL,
+                    comp,
+                    family,
+                    cost,
+                    seed,
+                    metric,
+                    n_boot=n_boot,
+                    rng_seed=10_000 + 101 * seed + 17 * comp_idx + metric_idx,
+                )
+                if row:
+                    rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def selected_file_suffix(selection: str) -> str:
@@ -102,9 +335,9 @@ def assemble_e1008(
     aux_roots: list[Path],
     final_run: str,
     final_selection: str,
-    legacy_modern_run: str,
-    ivgrid_noreg_run: str,
-    ivgrid_noreg_extra_runs: list[str],
+    supporting_modern_run: str,
+    ivgrid_final_objective_run: str,
+    ivgrid_final_objective_extra_runs: list[str],
     qiao_run: str | None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     final_metrics_selected, final_panel_selected = read_selected_checkpoint_run(root, final_run, final_selection)
@@ -117,15 +350,19 @@ def assemble_e1008(
     final_metrics = only_models(final_metrics_selected, [FNUG_MODEL])
     final_panel = only_models(final_panel_selected, [FNUG_MODEL])
 
-    legacy_metrics, legacy_panel = read_run(root, legacy_modern_run)
-    legacy_metrics = only_models(legacy_metrics, LEGACY_MODERN_MODELS)
-    legacy_panel = only_models(legacy_panel, LEGACY_MODERN_MODELS)
+    supporting_metrics, supporting_panel = read_run(root, supporting_modern_run)
+    supporting_metrics = only_models(supporting_metrics, SUPPORTING_MODERN_MODELS)
+    supporting_panel = only_models(supporting_panel, SUPPORTING_MODERN_MODELS)
 
     roots_for_extra = [root] + aux_roots
-    ivgrid_metrics, ivgrid_panel = read_best_run_from_roots(roots_for_extra, ivgrid_noreg_run, model="IVGrid-HedgeSet")
+    ivgrid_metrics, ivgrid_panel = read_best_run_from_roots(
+        roots_for_extra,
+        ivgrid_final_objective_run,
+        model="IVGrid-HedgeSet",
+    )
     ivgrid_metric_parts = [only_models(ivgrid_metrics, ["IVGrid-HedgeSet"])]
     ivgrid_panel_parts = [only_models(ivgrid_panel, ["IVGrid-HedgeSet"])]
-    for extra_run in ivgrid_noreg_extra_runs:
+    for extra_run in ivgrid_final_objective_extra_runs:
         loaded = read_optional_run_from_roots(roots_for_extra, extra_run)
         if loaded is None:
             continue
@@ -140,12 +377,12 @@ def assemble_e1008(
     qiao_panel = only_models(qiao_panel, ["QiaoResidual-LS"])
 
     metrics = pd.concat(
-        [final_metrics, static_metrics, legacy_metrics, qiao_metrics, ivgrid_metrics],
+        [final_metrics, static_metrics, supporting_metrics, qiao_metrics, ivgrid_metrics],
         ignore_index=True,
         sort=False,
     )
     panel = pd.concat(
-        [final_panel, static_panel, legacy_panel, qiao_panel, ivgrid_panel],
+        [final_panel, static_panel, supporting_panel, qiao_panel, ivgrid_panel],
         ignore_index=True,
         sort=False,
     )
@@ -252,9 +489,9 @@ def main() -> int:
     parser.add_argument("--aux-root", action="append", type=Path, default=[])
     parser.add_argument("--final-run", default=E1008_RUN)
     parser.add_argument("--final-selection", default=E1008_SELECTION)
-    parser.add_argument("--legacy-modern-run", default=LEGACY_MODERN_RUN)
-    parser.add_argument("--ivgrid-noreg-run", default=IVGRID_NOREG_RUN)
-    parser.add_argument("--ivgrid-noreg-extra-runs", default=",".join(IVGRID_NOREG_EXTRA_RUNS))
+    parser.add_argument("--supporting-modern-run", default=SUPPORTING_MODERN_RUN)
+    parser.add_argument("--ivgrid-final-objective-run", default=IVGRID_FINAL_OBJECTIVE_RUN)
+    parser.add_argument("--ivgrid-final-objective-extra-runs", default=",".join(IVGRID_FINAL_OBJECTIVE_EXTRA_RUNS))
     parser.add_argument("--qiao-run", default=None)
     parser.add_argument("--n-boot", type=int, default=2000)
     parser.add_argument("--outdir", type=Path, default=None)
@@ -265,15 +502,15 @@ def main() -> int:
     outdir = args.outdir or (root / "results" / "analysis")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    extra_runs = [r.strip() for r in str(args.ivgrid_noreg_extra_runs).split(",") if r.strip()]
+    extra_runs = [r.strip() for r in str(args.ivgrid_final_objective_extra_runs).split(",") if r.strip()]
     metrics, panel = assemble_e1008(
         root=root,
         aux_roots=aux_roots,
         final_run=args.final_run,
         final_selection=args.final_selection,
-        legacy_modern_run=args.legacy_modern_run,
-        ivgrid_noreg_run=args.ivgrid_noreg_run,
-        ivgrid_noreg_extra_runs=extra_runs,
+        supporting_modern_run=args.supporting_modern_run,
+        ivgrid_final_objective_run=args.ivgrid_final_objective_run,
+        ivgrid_final_objective_extra_runs=extra_runs,
         qiao_run=args.qiao_run,
     )
     metrics.to_csv(outdir / "e1008_final_combined_metrics.csv", index=False)

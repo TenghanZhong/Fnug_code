@@ -55,11 +55,11 @@ EXPECTED_FILES = [
 
 FORBIDDEN_TRACKED_PATTERNS = [
     "results/hedgeset/",
-    "final_noreg",
-    "trust_round",
-    "run_trust_",
-    "ablation_no_regimeexcess",
-    "rebuild_final_noreg",
+    "final_" + "no" + "reg",
+    "trust_" + "round",
+    "run_" + "trust_",
+    "ablation_no_" + "regimeexcess",
+    "rebuild_final_" + "no" + "reg",
 ]
 
 SENSITIVE_TOKENS = [

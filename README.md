@@ -36,7 +36,7 @@ trees.
   `scripts/rebuild_e1008_ablation.py`: rebuild the released analysis tables
   from local raw run outputs when those outputs are available.
 - `scripts/check_artifact.py`: verifies the released artifact and checks that
-  stale local paths or legacy result files are not tracked.
+  local paths or non-release result files are not tracked.
 - `data/README.md`: raw data availability and expected local file layout.
 
 ## Quick Check

@@ -9,7 +9,7 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINAL_RUN = "budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8"
+FINAL_RUN = "fnug_e1008_final_fam3_cost3_seed3_1eaa24b3f8"
 FINAL_SELECTION = "best_feasible_excess_0p008"
 AUDIT_SEEDS = [1, 42, 2026]
 ABLATIONS = {
@@ -18,7 +18,7 @@ ABLATIONS = {
     "No auxiliary risk": ("e1008_ablation_no_auxrisk_1eaa24b3f8", FINAL_SELECTION),
 }
 QIAO_RUN_CANDIDATES = [
-    "paper_add2_qiao_m4_20260526_1eaa24b3f8",
+    "qiao_residual_ls_m4_1eaa24b3f8",
     "qiao_ls_m4_1eaa24b3f8",
 ]
 

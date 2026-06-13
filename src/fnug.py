@@ -3750,16 +3750,13 @@ def qlike_loss_series(
     return out
 
 
-def legacy_penalized_qlike_loss_series(
+def penalized_qlike_loss_series(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     eps: float = 1e-8,
     invalid_penalty: float = 100.0,
 ) -> np.ndarray:
-    """
-    Backward-compatible diagnostic for DSV5. Structural-zero windows make the
-    fixed penalty dominate the average.
-    """
+    """QLIKE diagnostic variant that penalizes nonpositive realized values."""
     out = qlike_loss_series(y_true, y_pred, eps=eps, mode="standard")
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
@@ -6854,7 +6851,7 @@ def paired_bootstrap_hedging(
         "metric": metric,
         "n": int(n),
         "diff": float(obs),
-        "mean_diff": float(obs),  # legacy column name
+        "mean_diff": float(obs),
         "ci95_low": float(np.nanquantile(boot, 0.025)),
         "ci95_high": float(np.nanquantile(boot, 0.975)),
         "p_two_sided": min(pval, 1.0) if np.isfinite(pval) else np.nan,
@@ -7078,9 +7075,8 @@ class HedgeSetConfig:
     trust_gate_temp: float = 1.0
     lambda_trust_l1: float = 0.01
 
-    # Static regime-conditioned excess risk relative to the LS base.
-    # Disabled in the final specification; adaptive stress-conditioned variants
-    # are left as an extension rather than part of the default model.
+    # Optional regime-conditioned excess-risk diagnostic relative to the LS base.
+    # The released specification leaves this weight at zero.
     lambda_regime_excess_cvar: float = 0.0
     regime_excess_eta: float = 8.0
 
@@ -9478,7 +9474,6 @@ class QiaoResidualLSAgent(nn.Module):
       * factor-neutral residual projection,
       * global trust gate,
       * excess-CVaR training,
-      * worst-regime excess penalty,
       * auxiliary dense risk loss.
 
     Training uses the Qiao-style local squared hedging-error objective generalized
@@ -10784,9 +10779,9 @@ def main():
     parser.add_argument("--hedgeset-lambda-trust-l1", type=float, default=0.01,
                         help="Penalty on average residual trust, encouraging LS fallback unless residual value is earned.")
     parser.add_argument("--hedgeset-lambda-regime-excess-cvar", type=float, default=0.0,
-                        help="Penalty on static worst-regime CVaR of excess loss over the LS base. Default 0 for the final specification.")
+                        help="Optional penalty on regime-conditioned CVaR of excess loss over the LS base. Default 0 for the released specification.")
     parser.add_argument("--hedgeset-val-score-worst-regime-excess-weight", type=float, default=0.0,
-                        help="Validation-score weight on worst-regime excess CVaR. Default 0 for the final no-static-regime-excess design.")
+                        help="Validation-score weight on regime-conditioned excess CVaR. Default 0 for the released specification.")
     parser.add_argument("--hedgeset-val-feasible-excess-cvar95-max", type=float, default=None,
                         help="Maximum validation excess CVaR95 for the generic feasible checkpoint.")
     parser.add_argument("--hedgeset-val-feasible-excess-cvar95-grid", type=str, default="0.007,0.008,0.009,0.012",
