@@ -55,7 +55,6 @@
   "trust_gate_init_bias": -1.0,
   "trust_gate_temp": 1.0,
   "lambda_trust_l1": 0.003,
-  "lambda_regime_excess_cvar": 0.0,
   "lambda_aux_risk": 0.0,
   "val_feasible_excess_cvar95_max": 0.008,
   "val_feasible_excess_cvar95_grid": [

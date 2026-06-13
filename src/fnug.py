@@ -5411,67 +5411,6 @@ def run_pipeline(steps, skip_preprocess=False, rebuild=False, resume=False, incl
                                    out_dir=os.path.join(DATA_CFG.results_dir, "eval"))
 
 
-def run_ablation():
-    variants = {
-        "A0_full": {},
-        "A1_no_arb": {"lambda_arb": 0.0},
-        "A2_no_ba": {"lambda_ba": 0.0},
-        "A3_no_mask": {"lambda_mask": 0.0},
-        "A5_latent32": {"latent_dim": 32},
-    }
-
-    for name, overrides in variants.items():
-        logger.info(f"\n{'='*60}\n  ABLATION: {name}\n{'='*60}")
-
-        data_cfg = DataConfig()
-        model_cfg = ModelConfig()
-        train_cfg = TrainConfig()
-
-        for k, v in overrides.items():
-            if hasattr(train_cfg, k):
-                setattr(train_cfg, k, v)
-            elif hasattr(model_cfg, k):
-                setattr(model_cfg, k, v)
-
-        data_cfg.results_dir = os.path.join("results", "ablations", name)
-        os.makedirs(os.path.join(data_cfg.results_dir, "checkpoints"), exist_ok=True)
-        os.makedirs(os.path.join(data_cfg.results_dir, "eval"), exist_ok=True)
-
-        cache_path = os.path.join(data_cfg.cache_dir, "daily_quotes.pkl")
-
-        train_stage1(data_cfg, model_cfg, train_cfg, resume=False)
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        surface_model = FullSurfaceModel(model_cfg).to(device)
-        s1 = os.path.join(data_cfg.results_dir, "checkpoints", "stage1_best.pt")
-        ck1 = torch.load(s1, map_location=device)
-        if "model" not in ck1:
-            raise ValueError(f"[{name}] stage1_best.pt malformed. Keys found: {list(ck1.keys())}")
-        surface_model.load_state_dict(ck1["model"])
-
-        heads = train_stage2(surface_model, cache_path, data_cfg, model_cfg, train_cfg)
-        train_stage3(surface_model, heads, cache_path, data_cfg, model_cfg, train_cfg)
-
-        eval_surface = FullSurfaceModel(model_cfg).to(device)
-        eval_heads = DownstreamHeads(model_cfg).to(device)
-
-        try:
-            loaded_name = load_stage3_checkpoint_for_eval(eval_surface, eval_heads, data_cfg.results_dir, device,
-                                                          preference=train_cfg.stage3_eval_preference)
-        except FileNotFoundError:
-            eval_surface.load_state_dict(ck1["model"])
-            load_stage2_heads_or_raise(eval_heads, data_cfg.results_dir, device)
-            loaded_name = "stage1_best.pt + stage2_best.pt"
-            logger.warning(f"[{name}] Stage-3 checkpoint missing, fallback to {loaded_name}")
-
-        results = full_evaluation(eval_surface, eval_heads, cache_path, data_cfg, model_cfg, train_cfg)
-        print_results_table(results)
-        out = os.path.join(data_cfg.results_dir, "eval", "test_results.csv")
-        save_results(results, out)
-        logger.info(f"Ablation {name} complete -> {out} | loaded: {loaded_name}")
-
-
 
 def _parse_seed_list(seed_text: str) -> List[int]:
     return [int(s.strip()) for s in str(seed_text).split(",") if s.strip()]
@@ -7075,11 +7014,6 @@ class HedgeSetConfig:
     trust_gate_temp: float = 1.0
     lambda_trust_l1: float = 0.01
 
-    # Optional regime-conditioned excess-risk diagnostic relative to the LS base.
-    # The released specification leaves this weight at zero.
-    lambda_regime_excess_cvar: float = 0.0
-    regime_excess_eta: float = 8.0
-
     # Auxiliary dense supervision.  The policy predicts short-horizon base-loss
     # and transition proxies from the current belief/candidate-set state.  This
     # supplies dense gradients before the CVaR tail objective dominates.
@@ -7123,7 +7057,6 @@ class HedgeSetConfig:
     val_score_excess_cvar95_weight: float = 1.00
     val_score_excess_cvar99_weight: float = 0.25
     val_score_excess_relu_weight: float = 0.50
-    val_score_worst_regime_excess_weight: float = 0.0
     val_score_factor_weight: float = 0.10
     val_score_trust_weight: float = 0.02
     val_feasible_excess_cvar95_max: float = 0.012
@@ -8489,22 +8422,6 @@ def _hedgeset_imitation_loss(out: Dict[str, torch.Tensor], batch: dict) -> torch
 
 
 
-def _regime_soft_worst_cvar(values: torch.Tensor, regime_id: Optional[torch.Tensor], cfg: HedgeSetConfig) -> torch.Tensor:
-    if regime_id is None:
-        return torch.zeros((), device=values.device, dtype=values.dtype)
-    reg = regime_id.to(values.device)
-    vals = []
-    for rid in torch.unique(reg):
-        mask_r = reg == rid
-        if int(mask_r.sum().item()) >= int(getattr(cfg, "ambiguity_min_count", 2)):
-            vals.append(_cvar_torch(values[mask_r], cfg.cvar_alpha, None))
-    if not vals:
-        return torch.zeros((), device=values.device, dtype=values.dtype)
-    eta = max(float(getattr(cfg, "regime_excess_eta", getattr(cfg, "ambiguity_eta", 8.0))), 1e-6)
-    stacked = torch.stack(vals)
-    return torch.logsumexp(eta * stacked, dim=0) / eta
-
-
 def hedgeset_training_loss(agent: HedgeSetAgent, batch: dict, cfg: HedgeSetConfig, cost_bps: float) -> Tuple[torch.Tensor, dict]:
     out = _rollout_hedgeset(agent, batch, cfg, cost_bps, mode="policy")
     losses = out["loss_norm"]
@@ -8524,7 +8441,6 @@ def hedgeset_training_loss(agent: HedgeSetAgent, batch: dict, cfg: HedgeSetConfi
     residual_factor_pen = out.get("residual_factor_l2", torch.zeros_like(losses)).mean()
     trust_pen = out.get("global_trust_mean", torch.zeros_like(losses)).mean()
     aux_risk_pen = out.get("aux_risk_loss", torch.zeros((), device=losses.device, dtype=losses.dtype))
-    regime_excess_cvar = _regime_soft_worst_cvar(excess, batch.get("regime_id", None), cfg)
 
     ambiguity_pen = torch.zeros((), device=losses.device, dtype=losses.dtype)
     if bool(getattr(cfg, "ambiguity_aware", False)) and float(getattr(cfg, "lambda_ambiguity", 0.0)) > 0:
@@ -8568,7 +8484,6 @@ def hedgeset_training_loss(agent: HedgeSetAgent, batch: dict, cfg: HedgeSetConfi
             + float(getattr(cfg, "finetune_imitation_lambda", 0.02)) * imit_pen
             + float(getattr(cfg, "lambda_excess_cvar", 0.50)) * excess_cvar
             + float(getattr(cfg, "lambda_excess_relu", 0.25)) * excess_relu
-            + float(getattr(cfg, "lambda_regime_excess_cvar", 0.0)) * regime_excess_cvar
             + float(getattr(cfg, "lambda_residual_l2", 0.05)) * residual_l2_pen
             + float(getattr(cfg, "lambda_residual_trade", 0.02)) * residual_trade_pen
             + float(getattr(cfg, "lambda_factor_neutral", 0.10)) * residual_factor_pen
@@ -8591,7 +8506,6 @@ def hedgeset_training_loss(agent: HedgeSetAgent, batch: dict, cfg: HedgeSetConfi
         "residual_turnover": float(residual_trade_pen.detach().cpu()),
         "residual_factor": float(residual_factor_pen.detach().cpu()),
         "trust": float(trust_pen.detach().cpu()),
-        "regime_excess_cvar": float(regime_excess_cvar.detach().cpu()),
         "aux_risk": float(aux_risk_pen.detach().cpu()),
     }
 
@@ -8802,7 +8716,6 @@ def evaluate_hedgeset_agent(agent: Optional[HedgeSetAgent], loader: DataLoader, 
         "imitation_epochs": getattr(cfg, "imitation_epochs", np.nan),
         "factor_neutral_residual": getattr(cfg, "factor_neutral_residual", False),
         "use_global_trust_gate": getattr(cfg, "use_global_trust_gate", False),
-        "lambda_regime_excess_cvar": getattr(cfg, "lambda_regime_excess_cvar", np.nan),
         "lambda_aux_risk": getattr(cfg, "lambda_aux_risk", np.nan),
     })
     return metrics, panel
@@ -8818,7 +8731,6 @@ def _hedgeset_validation_score(metrics: dict, cfg: HedgeSetConfig) -> float:
     score += float(getattr(cfg, "val_score_excess_cvar95_weight", 1.0)) * float(metrics.get("excess_cvar_95", 0.0))
     score += float(getattr(cfg, "val_score_excess_cvar99_weight", 0.25)) * float(metrics.get("excess_cvar_99", metrics.get("excess_cvar_95", 0.0)))
     score += float(getattr(cfg, "val_score_excess_relu_weight", 0.50)) * float(metrics.get("mean_relu_excess_loss_norm", 0.0))
-    score += float(getattr(cfg, "val_score_worst_regime_excess_weight", 0.50)) * float(metrics.get("worst_regime_excess_cvar_95", metrics.get("excess_cvar_95", 0.0)))
     score += float(getattr(cfg, "val_score_factor_weight", 0.10)) * float(metrics.get("mean_residual_factor_l2", 0.0))
     score += float(getattr(cfg, "val_score_trust_weight", 0.02)) * float(metrics.get("mean_global_trust", 0.0))
     score += float(getattr(cfg, "val_score_worst_regime_weight", 0.25)) * float(metrics.get("worst_regime_cvar_95", metrics.get("cvar_95", np.inf)))
@@ -9840,7 +9752,6 @@ def evaluate_qiao_residual_ls_agent(agent: QiaoResidualLSAgent, loader: DataLoad
         "imitation_epochs": 0,
         "factor_neutral_residual": False,
         "use_global_trust_gate": False,
-        "lambda_regime_excess_cvar": 0.0,
         "lambda_aux_risk": 0.0,
     })
     return metrics, panel
@@ -9969,7 +9880,6 @@ def run_hedgeset_modern_baselines(
                     cfg_qiao.lambda_factor_neutral = 0.0
                     cfg_qiao.lambda_trust_l1 = 0.0
                     cfg_qiao.lambda_aux_risk = 0.0
-                    cfg_qiao.lambda_regime_excess_cvar = 0.0
                     cfg_qiao.lambda_excess_cvar = 0.0
                     cfg_qiao.lambda_excess_relu = 0.0
                     cfg_qiao.imitation_epochs = 0
@@ -10009,7 +9919,6 @@ def run_hedgeset_modern_baselines(
                     cfg_cv.lambda_factor_neutral = 0.0
                     cfg_cv.lambda_trust_l1 = 0.0
                     cfg_cv.lambda_aux_risk = 0.0
-                    cfg_cv.lambda_regime_excess_cvar = 0.0
                     cfg_cv.lambda_excess_cvar = 0.0
                     cfg_cv.lambda_excess_relu = 0.0
                     cfg_cv.lambda_residual_l2 = 0.0
@@ -10022,7 +9931,6 @@ def run_hedgeset_modern_baselines(
                     cfg_cv.val_score_excess_cvar95_weight = 0.0
                     cfg_cv.val_score_excess_cvar99_weight = 0.0
                     cfg_cv.val_score_excess_relu_weight = 0.0
-                    cfg_cv.val_score_worst_regime_excess_weight = 0.0
                     cfg_cv.val_score_factor_weight = 0.0
                     cfg_cv.val_score_trust_weight = 0.0
                     out_dir = os.path.join(cfg.results_dir, family, f"cost_{cost_bps:g}bps", "modern_baselines", "cvar_from_scratch", f"scope_{scope}", f"seed_{sd}")
@@ -10243,9 +10151,7 @@ def run_hedgeset_pipeline(
     trust_gate_init_bias: Optional[float] = None,
     trust_gate_temp: Optional[float] = None,
     lambda_trust_l1: Optional[float] = None,
-    lambda_regime_excess_cvar: Optional[float] = None,
     lambda_aux_risk: Optional[float] = None,
-    val_score_worst_regime_excess_weight: Optional[float] = None,
     val_feasible_excess_cvar95_max: Optional[float] = None,
     val_feasible_excess_cvar95_grid: Optional[List[float]] = None,
     val_feasible_turnover_max: Optional[float] = None,
@@ -10320,12 +10226,8 @@ def run_hedgeset_pipeline(
         cfg.trust_gate_temp = float(trust_gate_temp)
     if lambda_trust_l1 is not None:
         cfg.lambda_trust_l1 = float(lambda_trust_l1)
-    if lambda_regime_excess_cvar is not None:
-        cfg.lambda_regime_excess_cvar = float(lambda_regime_excess_cvar)
     if lambda_aux_risk is not None:
         cfg.lambda_aux_risk = float(lambda_aux_risk)
-    if val_score_worst_regime_excess_weight is not None:
-        cfg.val_score_worst_regime_excess_weight = float(val_score_worst_regime_excess_weight)
     if val_feasible_excess_cvar95_max is not None:
         cfg.val_feasible_excess_cvar95_max = float(val_feasible_excess_cvar95_max)
     if val_feasible_excess_cvar95_grid:
@@ -10424,7 +10326,6 @@ def run_hedgeset_pipeline(
             "trust_gate_init_bias": cfg.trust_gate_init_bias,
             "trust_gate_temp": cfg.trust_gate_temp,
             "lambda_trust_l1": cfg.lambda_trust_l1,
-            "lambda_regime_excess_cvar": cfg.lambda_regime_excess_cvar,
             "lambda_aux_risk": cfg.lambda_aux_risk,
             "val_feasible_excess_cvar95_max": cfg.val_feasible_excess_cvar95_max,
             "val_feasible_excess_cvar95_grid": cfg.val_feasible_excess_cvar95_grid,
@@ -10454,7 +10355,6 @@ def run_hedgeset_pipeline(
                 "excess_cvar95": cfg.val_score_excess_cvar95_weight,
                 "excess_cvar99": cfg.val_score_excess_cvar99_weight,
                 "excess_relu": cfg.val_score_excess_relu_weight,
-                "worst_regime_excess": cfg.val_score_worst_regime_excess_weight,
             },
         }, f, indent=2)
 
@@ -10624,7 +10524,6 @@ def main():
     parser.add_argument("--skip-preprocess", action="store_true", help="Skip preprocessing, use existing cache")
     parser.add_argument("--rebuild", action="store_true", help="Force cache rebuild even if cache exists")
     parser.add_argument("--resume", action="store_true", help="Resume training from last checkpoint")
-    parser.add_argument("--ablation", action="store_true", help="Run original surface-loss ablation variants")
     parser.add_argument("--set-forecast-only", action="store_true",
                         help="Run the clean set-encoder-only forecasting ablation.")
     parser.add_argument("--multi-seed", action="store_true",
@@ -10778,10 +10677,6 @@ def main():
                         help="Temperature of the global trust gate sigmoid.")
     parser.add_argument("--hedgeset-lambda-trust-l1", type=float, default=0.01,
                         help="Penalty on average residual trust, encouraging LS fallback unless residual value is earned.")
-    parser.add_argument("--hedgeset-lambda-regime-excess-cvar", type=float, default=0.0,
-                        help="Optional penalty on regime-conditioned CVaR of excess loss over the LS base. Default 0 for the released specification.")
-    parser.add_argument("--hedgeset-val-score-worst-regime-excess-weight", type=float, default=0.0,
-                        help="Validation-score weight on regime-conditioned excess CVaR. Default 0 for the released specification.")
     parser.add_argument("--hedgeset-val-feasible-excess-cvar95-max", type=float, default=None,
                         help="Maximum validation excess CVaR95 for the generic feasible checkpoint.")
     parser.add_argument("--hedgeset-val-feasible-excess-cvar95-grid", type=str, default="0.007,0.008,0.009,0.012",
@@ -10869,9 +10764,7 @@ def main():
             trust_gate_init_bias=args.hedgeset_trust_gate_init_bias,
             trust_gate_temp=args.hedgeset_trust_gate_temp,
             lambda_trust_l1=args.hedgeset_lambda_trust_l1,
-            lambda_regime_excess_cvar=args.hedgeset_lambda_regime_excess_cvar,
             lambda_aux_risk=args.hedgeset_lambda_aux_risk,
-            val_score_worst_regime_excess_weight=args.hedgeset_val_score_worst_regime_excess_weight,
             val_feasible_excess_cvar95_max=args.hedgeset_val_feasible_excess_cvar95_max,
             val_feasible_excess_cvar95_grid=_parse_float_list(args.hedgeset_val_feasible_excess_cvar95_grid),
             val_feasible_turnover_max=args.hedgeset_val_feasible_turnover_max,
@@ -10949,8 +10842,6 @@ def main():
             include_no_side=not args.set_only_side_only,
             include_grid_appendix=not args.no_grid_appendix,
         )
-    elif args.ablation:
-        run_ablation()
     else:
         run_pipeline(
             args.steps,

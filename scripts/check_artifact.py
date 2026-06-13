@@ -60,6 +60,7 @@ FORBIDDEN_TRACKED_PATTERNS = [
     "run_" + "trust_",
     "ablation_no_" + "regimeexcess",
     "rebuild_final_" + "no" + "reg",
+    "lambda_" + "regime_" + "excess_" + "cvar",
 ]
 
 SENSITIVE_TOKENS = [

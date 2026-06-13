@@ -3,10 +3,10 @@
 This repository contains the public code and derived outputs for
 **"FNUG: Factor-Neutral Update Gating for Anchored Option Hedging"**.
 
-The released main specification is the E1@0.008 budgeted FNUG policy. It uses a
-latent quote-set state, a hard LSDeltaVega anchor, residual scale 0.10, trust
-gate initialization -1.0, trust penalty 0.003, factor-neutral residual
-projection, and checkpoint selection under validation excess CVaR95 <= 0.008.
+The released main specification is the budgeted FNUG policy selected under a
+validation excess-CVaR95 budget of 0.008. It uses a latent quote-set state, a
+hard LSDeltaVega anchor, residual scale 0.10, trust gate initialization -1.0,
+trust penalty 0.003, and factor-neutral residual projection.
 
 Raw SPX option quote data and model checkpoints are not redistributed. The
 repository keeps derived analysis tables and figure files needed to reproduce
@@ -18,7 +18,7 @@ trees.
 - `src/fnug.py`: training, evaluation, baseline, and selector code.
 - `src/plot_fnug.py`: regenerates the paper figures from released E1008
   analysis files.
-- `configs/fnug_main.json`: final E1@0.008 FNUG configuration.
+- `configs/fnug_main.json`: released budgeted FNUG configuration.
 - `configs/ablation_no_factorneutral.json`,
   `configs/ablation_no_trustgate.json`, and
   `configs/ablation_no_auxrisk.json`: E1008 ablation configurations.

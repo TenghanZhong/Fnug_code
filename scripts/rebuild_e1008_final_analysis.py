@@ -386,10 +386,6 @@ def assemble_e1008(
         ignore_index=True,
         sort=False,
     )
-    if "lambda_regime_excess_cvar" in metrics.columns:
-        metrics["lambda_regime_excess_cvar"] = 0.0
-    if "lambda_regime_excess_cvar" in panel.columns:
-        panel["lambda_regime_excess_cvar"] = 0.0
     return metrics, panel
 
 
@@ -484,7 +480,7 @@ def write_e1008_summary_tables(metrics: pd.DataFrame, outdir: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Rebuild E1@0.008 final FNUG analysis tables.")
+    parser = argparse.ArgumentParser(description="Rebuild the released budgeted FNUG analysis tables.")
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--aux-root", action="append", type=Path, default=[])
     parser.add_argument("--final-run", default=E1008_RUN)
