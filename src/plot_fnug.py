@@ -1,108 +1,51 @@
 # -*- coding: utf-8 -*-
-"""
-Plotting script for FNUG paper Figures 2--5.
-
-Output filenames are intentionally unchanged:
-  figure2_tail_loss_survival.{pdf,png}
-  figure3_paired_excess_loss_vs_ls.{pdf,png}
-  figure4_cost_seed_robustness_heatmap.{pdf,png}
-  figure5_residual_diagnostics.{pdf,png}
-
-Windows PowerShell example:
-python .\\src\\plot_fnug.py --input .\\results --outdir .\\results\\paper_figures
-"""
+"""Regenerate FNUG paper figures from the released E1008 analysis files."""
 
 from __future__ import annotations
 
 import argparse
-import warnings
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from typing import Iterable
 
-import numpy as np
-import pandas as pd
 import matplotlib as mpl
 
 mpl.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
+import numpy as np
+import pandas as pd
 
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
 
-# -----------------------------------------------------------------------------
-# Paper-style plotting defaults
-# -----------------------------------------------------------------------------
 mpl.rcParams.update({
     "figure.dpi": 150,
     "savefig.dpi": 300,
     "font.size": 11,
     "axes.labelsize": 11,
     "axes.titlesize": 12,
-    "legend.fontsize": 10,
+    "legend.fontsize": 9,
     "xtick.labelsize": 10,
     "ytick.labelsize": 10,
-    "axes.linewidth": 0.9,
-    "lines.linewidth": 2.0,
     "pdf.fonttype": 42,
     "ps.fonttype": 42,
 })
 
-# -----------------------------------------------------------------------------
-# Run directory names
-# -----------------------------------------------------------------------------
-METHOD_DIRS = {
-    "FNUG": "budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8",
-    # Optional hard-LS-only run. Figure 2/3 use it if it exists.
-    # Figure 4 reads LSDeltaVega from the static baseline panel.
-    "LSDeltaVega": "A5_hardls_only_1eaa24b3f8",
-}
-FNUG_PANEL_FILE = "test_episode_panel_best_feasible_excess_0p008.csv"
-FNUG_COMBINED_PANEL_FILE = "e1008_final_combined_episode_panel.csv"
-
-MODERN_BASELINE_RUN = "fnug_modern_fam3_cost3_seed3_m4_1eaa24b3f8"
-IVGRID_BASELINE_RUN = "fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8"
-
-# Dictionary keys are separate from legend labels.
-MODERN_BASELINES = {
-    "IVGrid-HedgeSet": "ivgrid",
-    "NTB-LS": "ntb_ls",
-    "CVaR-HedgeSet": "cvar_from_scratch",
-}
-
-DISPLAY_LABELS = {
-    "FNUG": "FNUG",
-    "LSDeltaVega": "LSDeltaVega",
-    "IVGrid-HedgeSet": "IVGrid-HedgeSet",
-    "NTB-LS": "NTB-LS",
-    "CVaR-HedgeSet": "CVaR-HedgeSet",
-}
-
-
-def write_csv(df: pd.DataFrame, path: Path, **kwargs) -> None:
-    """Write deterministic LF-terminated CSVs for clean git diffs."""
-    df.to_csv(path, index=False, lineterminator="\n", **kwargs)
-
-FIG2_ORDER = [
-    "FNUG",
+FIG2_MODELS = [
+    "HedgeSet-latent",
     "LSDeltaVega",
     "IVGrid-HedgeSet",
     "NTB-LS",
     "CVaR-HedgeSet",
 ]
-
-LIABILITIES_FOR_HEATMAP = [
-    ("ATM call", "atm_call"),
-    ("put25", "put25"),
-    ("ATM straddle", "atm_straddle"),
-]
-COSTS_FOR_HEATMAP = [1, 2, 5]
-SEEDS_FOR_HEATMAP = [1, 42, 2026]
-REGIME_ORDER = ["calm", "middle", "stress"]
-
+DISPLAY = {
+    "HedgeSet-latent": "FNUG",
+    "LSDeltaVega": "LSDeltaVega",
+    "IVGrid-HedgeSet": "IVGrid-HedgeSet",
+    "NTB-LS": "NTB-LS",
+    "CVaR-HedgeSet": "CVaR-HedgeSet",
+}
 COLORS = {
-    "FNUG": "#0057B8",
+    "HedgeSet-latent": "#0057B8",
     "LSDeltaVega": "#E69F00",
     "IVGrid-HedgeSet": "#009E73",
     "NTB-LS": "#D55E00",
@@ -111,732 +54,287 @@ COLORS = {
     "middle": "#ff7f0e",
     "stress": "#2ca02c",
     "unknown": "#7f7f7f",
-    "Unknown": "#7f7f7f",
 }
-
 LINESTYLES = {
-    "FNUG": "-",
+    "HedgeSet-latent": "-",
     "LSDeltaVega": "--",
     "IVGrid-HedgeSet": "-.",
     "NTB-LS": ":",
     "CVaR-HedgeSet": "-",
 }
+LIABILITIES = [("ATM call", "atm_call"), ("25-delta put", "put25"), ("ATM straddle", "atm_straddle")]
+COSTS = [1, 2, 5]
+SEEDS = [1, 42, 2026]
+REGIMES = ["calm", "middle", "stress"]
 
-# -----------------------------------------------------------------------------
-# Figure sizing
-# -----------------------------------------------------------------------------
-PANEL_FIGSIZE = (6.4, 4.0)
-PANEL_LABELSIZE = 12.5
-PANEL_TICKSIZE = 10.5
-PANEL_LEGENDSIZE = 8.8
 
-HEATMAP_FIGSIZE = (10.6, 3.45)
-HEATMAP_LABELSIZE = 11.0
-HEATMAP_TICKSIZE = 9.8
-HEATMAP_TITLESIZE = 12.0
-HEATMAP_CELL_FONTSIZE = 9.5
-
-# -----------------------------------------------------------------------------
-# Generic helpers
-# -----------------------------------------------------------------------------
-def resolve_results_root(input_path: str | Path) -> Path:
-    """Return project root that contains results/hedgeset."""
-    p = Path(input_path)
+def resolve_results_dir(path: str | Path) -> Path:
+    p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Input path does not exist: {p}")
-
-    if (p / "results" / "hedgeset").exists():
+    if (p / "analysis").exists():
         return p
-    if (p / "hedgeset").exists():
+    if (p / "results" / "analysis").exists():
+        return p / "results"
+    if p.name == "analysis" and (p / "e1008_final_combined_episode_panel.csv").exists():
         return p.parent
-
-    candidates = list(p.rglob("results/hedgeset")) if p.is_dir() else []
-    if candidates:
-        return candidates[0].parent.parent
-
     raise FileNotFoundError(
-        f"Could not find results/hedgeset under: {p}\n"
-        "Use either the project root or the results folder."
+        f"Could not find an E1008 analysis directory under {p}. "
+        "Use the repository root or the results directory."
     )
 
 
-def save_png_pdf(fig: plt.Figure, outdir: Path, stem: str) -> None:
+def analysis_path(results_dir: Path, name: str) -> Path:
+    path = results_dir / "analysis" / name
+    if not path.exists():
+        raise FileNotFoundError(f"Missing analysis file: {path}")
+    return path
+
+
+def save_figure(fig: plt.Figure, outdir: Path, stem: str) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     fig.savefig(outdir / f"{stem}.png", bbox_inches="tight")
     fig.savefig(outdir / f"{stem}.pdf", bbox_inches="tight")
 
 
-def pick_col(df: pd.DataFrame, candidates: Sequence[str] | Iterable[str], required: bool = True) -> Optional[str]:
-    candidates = list(candidates)
-    cols = list(df.columns)
-    lower_map = {str(c).lower(): c for c in cols}
-    for cand in candidates:
-        if str(cand).lower() in lower_map:
-            return lower_map[str(cand).lower()]
-    for cand in candidates:
-        cl = str(cand).lower()
-        for c in cols:
-            if cl in str(c).lower():
-                return c
-    if required:
-        raise KeyError(f"None of candidate columns found: {candidates}\nAvailable columns: {cols}")
-    return None
+def write_csv(df: pd.DataFrame, path: Path) -> None:
+    df.to_csv(path, index=False, lineterminator="\n")
 
 
-def get_loss_col(df: pd.DataFrame) -> str:
-    return pick_col(df, [
-        "loss_norm",
-        "normalized_loss",
-        "episode_loss_norm",
-        "loss_normalized",
-        "liability_loss_norm",
-        "test_loss_norm",
-        "loss",
-    ], required=True)  # type: ignore[return-value]
-
-
-def get_regime_col(df: pd.DataFrame, required: bool = False) -> Optional[str]:
-    return pick_col(df, ["regime_name", "regime", "market_regime", "state_name", "state"], required=required)
-
-
-def read_csv_safe(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        raise FileNotFoundError(f"CSV not found: {path}")
-    return pd.read_csv(path)
-
-
-def compute_var_cvar(x: Iterable[float], alpha: float = 0.95) -> Tuple[float, float]:
-    arr = np.asarray(list(x), dtype=float)
+def var_cvar(values: Iterable[float], alpha: float = 0.95) -> tuple[float, float]:
+    arr = np.asarray(list(values), dtype=float)
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
         return np.nan, np.nan
-    q = float(np.quantile(arr, alpha))
-    tail = arr[arr >= q]
-    return q, float(np.mean(tail)) if tail.size else np.nan
+    var = float(np.quantile(arr, alpha))
+    tail = arr[arr >= var]
+    return var, float(tail.mean()) if tail.size else np.nan
 
 
-def empirical_survival(x: Iterable[float]) -> Tuple[np.ndarray, np.ndarray]:
-    arr = np.asarray(list(x), dtype=float)
+def empirical_survival(values: Iterable[float]) -> tuple[np.ndarray, np.ndarray]:
+    arr = np.asarray(list(values), dtype=float)
     arr = np.sort(arr[np.isfinite(arr)])
-    n = len(arr)
-    if n == 0:
+    if arr.size == 0:
         return np.array([]), np.array([])
-    surv = (n - np.arange(n)) / (n + 1.0)
-    return arr, surv
+    return arr, (arr.size - np.arange(arr.size)) / (arr.size + 1.0)
 
 
-def model_normalized(s: pd.Series) -> pd.Series:
-    return (
-        s.astype(str)
-        .str.lower()
-        .str.replace(" ", "", regex=False)
-        .str.replace("_", "", regex=False)
-        .str.replace("-", "", regex=False)
+def main_cell(panel: pd.DataFrame) -> pd.DataFrame:
+    seed = pd.to_numeric(panel["seed"], errors="coerce")
+    cost = pd.to_numeric(panel["cost_bps"], errors="coerce")
+    mask = (
+        panel["family"].eq("atm_call")
+        & cost.eq(2.0)
+        & (seed.eq(42.0) | seed.isna())
     )
+    return panel.loc[mask].copy()
 
 
-def is_ls_model_series(s: pd.Series) -> pd.Series:
-    x = model_normalized(s)
-    exact = x.isin(["lsdeltavega", "lsdelta", "ls"])
-    substring = x.str.contains("ls", na=False) & x.str.contains("delta", na=False) & x.str.contains("vega", na=False)
-    return exact | substring
+def make_figure2(results_dir: Path, outdir: Path) -> None:
+    panel = pd.read_csv(analysis_path(results_dir, "e1008_final_combined_episode_panel.csv"), low_memory=False)
+    df = main_cell(panel)
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    summary_rows: list[dict[str, float | str | int]] = []
 
-
-def is_fnug_model_series(s: pd.Series) -> pd.Series:
-    x = model_normalized(s)
-    main = x.str.contains("hedgesetlatent", na=False) | x.str.contains("fnug", na=False)
-    exclude = (
-        x.str.contains("ivgrid", na=False)
-        | x.str.contains("ntbls", na=False)
-        | x.str.contains("cvar", na=False)
-        | x.str.contains("smileddelta", na=False)
-        | x.str.contains("notradedelta", na=False)
-        | x.str.contains("greedydeltavega", na=False)
-        | x.str.contains("lsdeltavega", na=False)
-    )
-    return main & (~exclude)
-
-
-def get_id_cols_for_merge(df1: pd.DataFrame, df2: pd.DataFrame) -> Optional[list[str]]:
-    candidate_sets = [
-        ["episode_id"],
-        ["start_date"],
-        ["date"],
-        ["trade_date"],
-        ["test_date"],
-        ["quote_date"],
-        ["episode_date"],
-        ["episode_id", "start_date"],
-        ["episode_id", "date"],
-    ]
-    for cands in candidate_sets:
-        if all(c in df1.columns for c in cands) and all(c in df2.columns for c in cands):
-            return cands
-    return None
-
-# -----------------------------------------------------------------------------
-# Path helpers
-# -----------------------------------------------------------------------------
-def fnug_case_panel_path(root: Path, liability: str, cost_bps: int, seed: int) -> Path:
-    return (
-        root / "results" / "hedgeset" / METHOD_DIRS["FNUG"] /
-        liability / f"cost_{cost_bps}bps" / "variant_full" / "scope_full" /
-        "policy_latent" / f"seed_{seed}" / FNUG_PANEL_FILE
-    )
-
-
-def ls_case_panel_path(root: Path, liability: str, cost_bps: int, seed: int) -> Path:
-    return (
-        root / "results" / "hedgeset" / METHOD_DIRS["LSDeltaVega"] /
-        liability / f"cost_{cost_bps}bps" / "variant_full" / "scope_full" /
-        "policy_latent" / f"seed_{seed}" / "test_episode_panel.csv"
-    )
-
-
-def baseline_case_panel_path(root: Path, baseline_label: str, liability: str, cost_bps: int, seed: int) -> Path:
-    baseline_dir = MODERN_BASELINES[baseline_label]
-    run_dir = IVGRID_BASELINE_RUN if baseline_label == "IVGrid-HedgeSet" else MODERN_BASELINE_RUN
-    return (
-        root / "results" / "hedgeset" / run_dir /
-        liability / f"cost_{cost_bps}bps" / "modern_baselines" /
-        baseline_dir / "scope_full" / f"seed_{seed}" / "test_episode_panel.csv"
-    )
-
-
-def static_ls_panel_path(root: Path, liability: str, cost_bps: int) -> Path:
-    return (
-        root / "results" / "hedgeset" / METHOD_DIRS["FNUG"] /
-        liability / f"cost_{cost_bps}bps" / "static" / "static_baseline_episode_panel.csv"
-    )
-
-
-def fnug_combined_panel_path(root: Path) -> Path:
-    analysis_path = root / "results" / "analysis" / FNUG_COMBINED_PANEL_FILE
-    if analysis_path.exists():
-        return analysis_path
-    return root / "results" / "hedgeset" / METHOD_DIRS["FNUG"] / "hedgeset_test_episode_panel_all.csv"
-
-# -----------------------------------------------------------------------------
-# Data readers
-# -----------------------------------------------------------------------------
-def read_static_ls_panel(root: Path, liability: str, cost_bps: int) -> pd.DataFrame:
-    path = static_ls_panel_path(root, liability, cost_bps)
-    df = read_csv_safe(path)
-    model_col = pick_col(df, ["model"], required=True)
-    mask = is_ls_model_series(df[model_col])  # type: ignore[index]
-    if not mask.any():
-        raise ValueError(
-            f"Cannot find LSDeltaVega rows in {path}. "
-            f"Available models: {sorted(df[model_col].astype(str).unique())}"  # type: ignore[index]
-        )
-    return df.loc[mask].copy()
-
-
-def read_ls_panel_for_case(root: Path, liability: str, cost_bps: int, seed: int) -> pd.DataFrame:
-    direct = ls_case_panel_path(root, liability, cost_bps, seed)
-    if direct.exists():
-        return pd.read_csv(direct)
-    return read_static_ls_panel(root, liability, cost_bps)
-
-
-def get_fnug_case_cvar95(root: Path, liability: str, cost_bps: int, seed: int) -> float:
-    df = read_csv_safe(fnug_case_panel_path(root, liability, cost_bps, seed))
-    _, cvar95 = compute_var_cvar(df[get_loss_col(df)].to_numpy(), 0.95)
-    return cvar95
-
-
-def get_static_ls_cvar95(root: Path, liability: str, cost_bps: int) -> float:
-    df = read_static_ls_panel(root, liability, cost_bps)
-    _, cvar95 = compute_var_cvar(df[get_loss_col(df)].to_numpy(), 0.95)
-    return cvar95
-
-# -----------------------------------------------------------------------------
-# Figure 2: tail survival
-# -----------------------------------------------------------------------------
-def make_figure2_tail_survival(root: Path, outdir: Path) -> None:
-    """
-    Figure 2 tail survival panel.
-
-    - Uses paper display labels for all baselines.
-    - Shows a right-tail zoom so FNUG is visible against LSDeltaVega and IVGrid-HedgeSet.
-    - Draws FNUG last with a white underlay and thick blue line.
-    - Marks VaR95 dots and CVaR95 bottom ticks for FNUG / LSDeltaVega / IVGrid-HedgeSet.
-    """
-    liability = "atm_call"
-    cost_bps = 2
-    seed = 42
-
-    panels: Dict[str, np.ndarray] = {}
-
-    df = read_csv_safe(fnug_case_panel_path(root, liability, cost_bps, seed))
-    panels["FNUG"] = df[get_loss_col(df)].to_numpy()
-
-    df = read_ls_panel_for_case(root, liability, cost_bps, seed)
-    panels["LSDeltaVega"] = df[get_loss_col(df)].to_numpy()
-
-    for label in MODERN_BASELINES:
-        df = read_csv_safe(baseline_case_panel_path(root, label, liability, cost_bps, seed))
-        panels[label] = df[get_loss_col(df)].to_numpy()
-
-    draw_order = [
-        "CVaR-HedgeSet",
-        "NTB-LS",
-        "LSDeltaVega",
-        "IVGrid-HedgeSet",
-        "FNUG",
-    ]
-
-    widths = {
-        "FNUG": 2.8,
-        "LSDeltaVega": 2.1,
-        "IVGrid-HedgeSet": 2.1,
-        "NTB-LS": 2.0,
-        "CVaR-HedgeSet": 1.8,
-    }
-    alphas = {
-        "FNUG": 1.0,
-        "LSDeltaVega": 0.95,
-        "IVGrid-HedgeSet": 0.95,
-        "NTB-LS": 0.85,
-        "CVaR-HedgeSet": 0.65,
-    }
-
-    fig, ax = plt.subplots(figsize=PANEL_FIGSIZE, constrained_layout=True)
-
-    # Right-tail zoom: this is where CVaR95 differences are visible.
-    ax.set_xlim(-0.005, 0.22)
-    ax.set_ylim(6e-3, 1.2e-1)
-    ax.set_yscale("log")
-
-    for label in draw_order:
-        x, surv = empirical_survival(panels[label])
-
-        # White underlay makes FNUG visible even when curves overlap.
-        if label == "FNUG":
-            ax.step(
-                x, surv,
-                where="post",
-                linewidth=4.2,
-                linestyle="-",
-                color="white",
-                alpha=1.0,
-                zorder=9,
-            )
-
-        ax.step(
-            x, surv,
-            where="post",
-            linewidth=widths[label],
-            linestyle=LINESTYLES[label],
-            color=COLORS[label],
-            alpha=alphas[label],
-            label=DISPLAY_LABELS[label],
-            zorder=10 if label == "FNUG" else 4,
-        )
-
-        var95, cvar95 = compute_var_cvar(panels[label], 0.95)
-
-        ax.scatter(
-            [var95],
-            [0.05],
-            s=42 if label == "FNUG" else 32,
-            color=COLORS[label],
-            edgecolor="white",
-            linewidth=0.8,
-            zorder=12 if label == "FNUG" else 8,
-        )
-
-        # CVaR95 bottom ticks for the three close competitors.
-        # Short marks avoid cluttering the survival curves.
-        if label in {"FNUG", "LSDeltaVega", "IVGrid-HedgeSet"}:
-            ax.vlines(
-                cvar95,
-                ymin=6.3e-3,
-                ymax=1.05e-2,
-                color=COLORS[label],
-                linestyle=LINESTYLES[label],
-                linewidth=2.0 if label == "FNUG" else 1.6,
-                alpha=0.85,
-                zorder=6,
-            )
-
-    ax.set_xlabel("Normalized loss", fontsize=PANEL_LABELSIZE)
-    ax.set_ylabel("Tail survival probability", fontsize=PANEL_LABELSIZE)
-    ax.tick_params(axis="both", labelsize=PANEL_TICKSIZE)
-    ax.grid(True, alpha=0.25, which="both")
-
-    ax.text(
-        0.003,
-        7.3e-3,
-        "dots: 95% VaR\nbottom ticks: 95% CVaR",
-        fontsize=9,
-        ha="left",
-        va="bottom",
-        bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="none", alpha=0.75),
-    )
-
-    ax.legend(
-        frameon=False,
-        loc="upper right",
-        ncol=1,
-        fontsize=PANEL_LEGENDSIZE,
-        handlelength=1.25,
-        labelspacing=0.18,
-        borderaxespad=0.15,
-    )
-
-    save_png_pdf(fig, outdir, "figure2_tail_loss_survival")
-    plt.close(fig)
-
-    rows = []
-    for label in FIG2_ORDER:
-        var95, cvar95 = compute_var_cvar(panels[label], 0.95)
-        var99, cvar99 = compute_var_cvar(panels[label], 0.99)
-        rows.append({
-            "method": DISPLAY_LABELS[label],
-            "VaR95": var95,
-            "CVaR95": cvar95,
-            "VaR99": var99,
-            "CVaR99": cvar99,
-            "n": int(np.isfinite(panels[label]).sum()),
+    for model in FIG2_MODELS:
+        vals = pd.to_numeric(df.loc[df["model"].eq(model), "loss_norm"], errors="coerce").dropna().to_numpy()
+        if vals.size == 0:
+            continue
+        x, y = empirical_survival(vals)
+        ax.step(x, y, where="post", label=DISPLAY.get(model, model), color=COLORS.get(model), linestyle=LINESTYLES.get(model, "-"))
+        var95, cvar95 = var_cvar(vals, 0.95)
+        ax.scatter([var95], [0.05], color=COLORS.get(model), s=26, zorder=4)
+        ax.vlines(cvar95, 0.0, 0.018, color=COLORS.get(model), linewidth=2.0)
+        summary_rows.append({
+            "model": DISPLAY.get(model, model),
+            "n": int(vals.size),
+            "var_95": var95,
+            "cvar_95": cvar95,
+            "mean_loss": float(np.mean(vals)),
         })
-    write_csv(pd.DataFrame(rows), outdir / "figure2_tail_loss_summary.csv")
 
-# -----------------------------------------------------------------------------
-# Figure 3: paired excess loss
-# -----------------------------------------------------------------------------
-def make_figure3_paired_excess_vs_ls(root: Path, outdir: Path, sort_mode: str = "ls_loss") -> None:
-    liability, cost_bps, seed = "atm_call", 2, 42
-
-    fnug = read_csv_safe(fnug_case_panel_path(root, liability, cost_bps, seed)).copy()
-    ls = read_ls_panel_for_case(root, liability, cost_bps, seed).copy()
-
-    loss_fnug = get_loss_col(fnug)
-    loss_ls = get_loss_col(ls)
-    regime_col = get_regime_col(fnug, required=False)
-    merge_keys = get_id_cols_for_merge(fnug, ls)
-
-    if merge_keys is not None:
-        keep_fnug = merge_keys + [loss_fnug] + ([regime_col] if regime_col is not None else [])
-        keep_ls = merge_keys + [loss_ls]
-        tmp = fnug[keep_fnug].merge(ls[keep_ls], on=merge_keys, how="inner", suffixes=("_fnug", "_ls"))
-        fnug_loss_col = f"{loss_fnug}_fnug" if f"{loss_fnug}_fnug" in tmp.columns else loss_fnug
-        ls_loss_col = f"{loss_ls}_ls" if f"{loss_ls}_ls" in tmp.columns else loss_ls
-    else:
-        n = min(len(fnug), len(ls))
-        tmp = pd.DataFrame({
-            "row_id": np.arange(n),
-            "loss_fnug": fnug[loss_fnug].iloc[:n].to_numpy(),
-            "loss_ls": ls[loss_ls].iloc[:n].to_numpy(),
-        })
-        if regime_col is not None:
-            tmp["regime_name"] = fnug[regime_col].iloc[:n].to_numpy()
-        fnug_loss_col = "loss_fnug"
-        ls_loss_col = "loss_ls"
-
-    if tmp.empty:
-        raise ValueError("FNUG and LS panels could not be paired. Check start_date or episode_id columns.")
-
-    tmp["excess_loss"] = pd.to_numeric(tmp[fnug_loss_col], errors="coerce") - pd.to_numeric(tmp[ls_loss_col], errors="coerce")
-    tmp = tmp.dropna(subset=["excess_loss", ls_loss_col]).copy()
-    if sort_mode == "ls_loss":
-        tmp = tmp.sort_values(ls_loss_col).reset_index(drop=True)
-    else:
-        tmp = tmp.reset_index(drop=True)
-
-    x = np.arange(len(tmp))
-    y = tmp["excess_loss"].to_numpy(dtype=float)
-    regcol = "regime_name" if "regime_name" in tmp.columns else (regime_col if regime_col in tmp.columns else None)
-
-    fig, ax = plt.subplots(figsize=PANEL_FIGSIZE, constrained_layout=True)
-
-    if regcol is not None:
-        reg_series = tmp[regcol].fillna("unknown").astype(str).str.lower()
-        regimes = [r for r in REGIME_ORDER if r in set(reg_series)]
-        regimes += [r for r in sorted(set(reg_series)) if r not in set(regimes)]
-        for r in regimes:
-            m = reg_series == r
-            ax.scatter(
-                x[m], y[m],
-                s=20,
-                alpha=0.76,
-                label=r,
-                color=COLORS.get(r, COLORS["unknown"]),
-            )
-    else:
-        ax.scatter(x, y, s=20, alpha=0.76, label="episodes")
-
-    ax.axhline(0.0, color="black", linewidth=1.8, zorder=1)
-    if len(tmp) >= 15:
-        roll = pd.Series(y).rolling(15, center=True, min_periods=5).mean()
-        ax.plot(
-            x,
-            roll,
-            linewidth=1.8,
-            color="black",
-            linestyle="--",
-            alpha=0.9,
-            label="15-episode mean",
-        )
-
-    ax.set_xlabel("Episodes sorted by LSDeltaVega loss", fontsize=PANEL_LABELSIZE)
-    ax.set_ylabel("Excess loss vs. LSDeltaVega", fontsize=PANEL_LABELSIZE)
-    ax.tick_params(axis="both", labelsize=PANEL_TICKSIZE)
+    all_tail = pd.to_numeric(df.loc[df["model"].isin(FIG2_MODELS), "loss_norm"], errors="coerce").dropna().to_numpy()
+    if all_tail.size:
+        lo = float(np.quantile(all_tail, 0.78))
+        hi = float(np.quantile(all_tail, 0.995))
+        ax.set_xlim(lo, hi)
+        ax.set_ylim(0.0, 0.23)
+    ax.set_xlabel("Normalized loss")
+    ax.set_ylabel("Empirical survival probability")
     ax.grid(True, alpha=0.25)
-    ax.legend(
-        frameon=False,
-        loc="upper right",
-        ncol=2,
-        fontsize=PANEL_LEGENDSIZE,
-        handlelength=1.5,
-        columnspacing=0.75,
-        labelspacing=0.22,
-        borderaxespad=0.2,
-    )
+    ax.legend(frameon=False, loc="upper right", ncol=1)
+    save_figure(fig, outdir, "figure2_tail_loss_survival")
+    plt.close(fig)
+    write_csv(pd.DataFrame(summary_rows), outdir / "figure2_tail_loss_summary.csv")
 
-    ymin, ymax = np.nanmin(y), np.nanmax(y)
-    pad = max(0.002, 0.08 * (ymax - ymin))
-    ax.set_ylim(ymin - pad, ymax + pad)
 
-    save_png_pdf(fig, outdir, "figure3_paired_excess_loss_vs_ls")
+def make_figure3(results_dir: Path, outdir: Path) -> None:
+    panel = pd.read_csv(analysis_path(results_dir, "e1008_final_combined_episode_panel.csv"), low_memory=False)
+    df = main_cell(panel)
+    fnug = df.loc[df["model"].eq("HedgeSet-latent"), ["start_date", "loss_norm", "regime_name"]].copy()
+    ls = df.loc[df["model"].eq("LSDeltaVega"), ["start_date", "loss_norm"]].copy()
+    fnug = fnug.rename(columns={"loss_norm": "fnug_loss", "regime_name": "regime"})
+    ls = ls.rename(columns={"loss_norm": "ls_loss"})
+    merged = fnug.merge(ls, on="start_date", how="inner")
+    merged["excess_loss"] = pd.to_numeric(merged["fnug_loss"], errors="coerce") - pd.to_numeric(merged["ls_loss"], errors="coerce")
+    merged = merged.sort_values("ls_loss").reset_index(drop=True)
+    merged["rank"] = np.arange(1, len(merged) + 1)
+    merged["rolling_mean_15"] = merged["excess_loss"].rolling(15, min_periods=1).mean()
+
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    for regime, grp in merged.groupby(merged["regime"].fillna("unknown")):
+        ax.scatter(grp["rank"], grp["excess_loss"], s=18, alpha=0.75, label=str(regime), color=COLORS.get(str(regime), COLORS["unknown"]))
+    ax.plot(merged["rank"], merged["rolling_mean_15"], color="black", linestyle="--", linewidth=1.5, label="15-episode mean")
+    ax.axhline(0.0, color="black", linewidth=0.9, alpha=0.6)
+    ax.set_xlabel("Episodes sorted by LSDeltaVega loss")
+    ax.set_ylabel("FNUG loss minus LSDeltaVega loss")
+    ax.grid(True, alpha=0.25)
+    ax.legend(frameon=False, loc="upper right", ncol=2, fontsize=8.5)
+    save_figure(fig, outdir, "figure3_paired_excess_loss_vs_ls")
     plt.close(fig)
 
+    write_csv(merged, outdir / "figure3_paired_excess_data.csv")
     write_csv(pd.DataFrame([{
-        "n_episodes": len(tmp),
-        "mean_excess_loss": float(np.nanmean(y)),
-        "median_excess_loss": float(np.nanmedian(y)),
-        "share_fnug_better": float(np.mean(y < 0)),
-        "share_fnug_worse": float(np.mean(y > 0)),
-        "share_tie": float(np.mean(np.isclose(y, 0.0))),
+        "n_episodes": len(merged),
+        "mean_excess_loss": float(merged["excess_loss"].mean()),
+        "median_excess_loss": float(merged["excess_loss"].median()),
+        "share_fnug_better": float((merged["excess_loss"] < 0).mean()),
+        "share_fnug_worse": float((merged["excess_loss"] > 0).mean()),
     }]), outdir / "figure3_paired_excess_summary.csv")
-    write_csv(tmp, outdir / "figure3_paired_excess_data.csv")
 
-# -----------------------------------------------------------------------------
-# Figure 4: cost x seed robustness heatmap
-# -----------------------------------------------------------------------------
-def make_figure4_heatmap(root: Path, outdir: Path) -> None:
-    mats: Dict[str, np.ndarray] = {}
+
+def make_figure4(results_dir: Path, outdir: Path) -> None:
+    heat = pd.read_csv(analysis_path(results_dir, "e1008_final_heatmap_values.csv"))
+    mats: dict[str, np.ndarray] = {}
     all_vals: list[float] = []
-    rows: list[dict] = []
-
-    for title, liab in LIABILITIES_FOR_HEATMAP:
-        mat = np.full((len(COSTS_FOR_HEATMAP), len(SEEDS_FOR_HEATMAP)), np.nan)
-        for i, cost in enumerate(COSTS_FOR_HEATMAP):
-            try:
-                ls_cvar = get_static_ls_cvar95(root, liab, cost)
-            except Exception as exc:
-                print(f"[WARN] Missing LS static baseline for liability={liab}, cost={cost}: {exc}")
-                ls_cvar = np.nan
-
-            for j, seed in enumerate(SEEDS_FOR_HEATMAP):
-                try:
-                    fnug_cvar = get_fnug_case_cvar95(root, liab, cost, seed)
-                    diff = fnug_cvar - ls_cvar if np.isfinite(ls_cvar) else np.nan
-                    mat[i, j] = diff
-                    if np.isfinite(diff):
-                        all_vals.append(float(diff))
-                    rows.append({
-                        "liability_display": title,
-                        "liability": liab,
-                        "cost_bps": cost,
-                        "seed": seed,
-                        "fnug_cvar95": fnug_cvar,
-                        "ls_cvar95_static": ls_cvar,
-                        "cvar95_diff_fnug_minus_ls": diff,
-                    })
-                except Exception as exc:
-                    print(f"[WARN] Missing FNUG heatmap cell for liability={liab}, cost={cost}, seed={seed}: {exc}")
-                    rows.append({
-                        "liability_display": title,
-                        "liability": liab,
-                        "cost_bps": cost,
-                        "seed": seed,
-                        "fnug_cvar95": np.nan,
-                        "ls_cvar95_static": ls_cvar,
-                        "cvar95_diff_fnug_minus_ls": np.nan,
-                    })
+    for title, family in LIABILITIES:
+        mat = np.full((len(COSTS), len(SEEDS)), np.nan)
+        for i, cost in enumerate(COSTS):
+            for j, seed in enumerate(SEEDS):
+                row = heat.loc[
+                    heat["family"].eq(family)
+                    & pd.to_numeric(heat["cost_bps"], errors="coerce").eq(float(cost))
+                    & pd.to_numeric(heat["seed"], errors="coerce").eq(float(seed))
+                ]
+                if not row.empty:
+                    val = float(row.iloc[0]["diff_fnug_minus_ls"])
+                    mat[i, j] = val
+                    all_vals.append(val)
         mats[title] = mat
 
     vabs = max(abs(np.nanmin(all_vals)), abs(np.nanmax(all_vals))) if all_vals else 1.0
-    vabs = max(vabs, 1e-6)
     norm = TwoSlopeNorm(vmin=-vabs, vcenter=0.0, vmax=vabs)
-
-    fig, axes = plt.subplots(1, 3, figsize=HEATMAP_FIGSIZE, constrained_layout=True)
-    im = None
-    for ax, (title, _) in zip(axes, LIABILITIES_FOR_HEATMAP):
+    fig, axes = plt.subplots(1, 3, figsize=(10.6, 3.45), constrained_layout=True)
+    image = None
+    for ax, (title, _) in zip(axes, LIABILITIES):
         mat = mats[title]
-        im = ax.imshow(mat, aspect="auto", cmap="RdBu_r", norm=norm)
-        ax.set_xticks(np.arange(len(SEEDS_FOR_HEATMAP)))
-        ax.set_xticklabels([str(s) for s in SEEDS_FOR_HEATMAP], fontsize=HEATMAP_TICKSIZE)
-        ax.set_yticks(np.arange(len(COSTS_FOR_HEATMAP)))
-        ax.set_yticklabels([f"{c} bps" for c in COSTS_FOR_HEATMAP], fontsize=HEATMAP_TICKSIZE)
-        ax.set_xlabel("Seed", fontsize=HEATMAP_LABELSIZE)
+        image = ax.imshow(mat, aspect="auto", cmap="RdBu_r", norm=norm)
+        ax.set_xticks(np.arange(len(SEEDS)), [str(s) for s in SEEDS])
+        ax.set_yticks(np.arange(len(COSTS)), [f"{c} bps" for c in COSTS])
+        ax.set_xlabel("Seed")
         if ax is axes[0]:
-            ax.set_ylabel("Transaction cost", fontsize=HEATMAP_LABELSIZE)
-        ax.set_title(title, fontsize=HEATMAP_TITLESIZE, pad=4)
-        ax.tick_params(axis="both", labelsize=HEATMAP_TICKSIZE)
-
+            ax.set_ylabel("Transaction cost")
+        ax.set_title(title)
         for i in range(mat.shape[0]):
             for j in range(mat.shape[1]):
                 val = mat[i, j]
-                txt = "NA" if not np.isfinite(val) else f"{val:.4f}"
                 text_color = "white" if np.isfinite(val) and abs(val) > 0.62 * vabs else "black"
-                ax.text(
-                    j,
-                    i,
-                    txt,
-                    ha="center",
-                    va="center",
-                    color=text_color,
-                    fontsize=HEATMAP_CELL_FONTSIZE,
-                )
-
-    if im is not None:
-        cbar = fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.86, pad=0.025)
-        cbar.set_label(r"$\Delta$CVaR$_{95}$ vs. LS", fontsize=HEATMAP_LABELSIZE)
-        cbar.ax.tick_params(labelsize=HEATMAP_TICKSIZE)
-
-    save_png_pdf(fig, outdir, "figure4_cost_seed_robustness_heatmap")
+                ax.text(j, i, "NA" if not np.isfinite(val) else f"{val:.4f}", ha="center", va="center", color=text_color, fontsize=9.5)
+    if image is not None:
+        cbar = fig.colorbar(image, ax=axes.ravel().tolist(), shrink=0.86, pad=0.025)
+        cbar.set_label(r"$\Delta$CVaR$_{95}$ vs. LS")
+    save_figure(fig, outdir, "figure4_cost_seed_robustness_heatmap")
     plt.close(fig)
-    write_csv(pd.DataFrame(rows), outdir / "figure4_heatmap_values.csv")
-
-# -----------------------------------------------------------------------------
-# Figure 5: residual diagnostics
-# -----------------------------------------------------------------------------
-def filter_fnug_diagnostics_rows(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    model_col = pick_col(out, ["model"], required=False)
-    state_col = pick_col(out, ["state_mode"], required=False)
-    variant_col = pick_col(out, ["policy_variant"], required=False)
-
-    if model_col is not None:
-        out = out.loc[is_fnug_model_series(out[model_col])].copy()
-    if state_col is not None and not out.empty:
-        out = out.loc[out[state_col].astype(str).str.lower().eq("latent")].copy()
-    if variant_col is not None and not out.empty:
-        out = out.loc[out[variant_col].astype(str).str.lower().eq("full")].copy()
-
-    for col in ["residual_delta_exposure", "residual_vega_exposure", "global_trust_mean"]:
-        if col in out.columns:
-            out = out.loc[pd.to_numeric(out[col], errors="coerce").notna()].copy()
-    return out
+    out = heat.rename(columns={
+        "family": "liability",
+        "fnug_cvar_95": "fnug_cvar95",
+        "ls_cvar_95": "ls_cvar95_static",
+        "diff_fnug_minus_ls": "cvar95_diff_fnug_minus_ls",
+    }).copy()
+    write_csv(out, outdir / "figure4_heatmap_values.csv")
 
 
-def grouped_boxplot_fixed_order(ax: plt.Axes, df: pd.DataFrame, group_col: str, value_col: str, ylabel: str) -> None:
-    grp = df[[group_col, value_col]].dropna().copy()
-    grp[group_col] = grp[group_col].astype(str).str.lower()
-    grp[value_col] = pd.to_numeric(grp[value_col], errors="coerce")
-    grp = grp.dropna()
-    if grp.empty:
-        raise ValueError(f"No finite rows for grouped boxplot: {group_col}, {value_col}")
-
-    order = [r for r in REGIME_ORDER if r in set(grp[group_col])]
-    order += [r for r in sorted(set(grp[group_col])) if r not in set(order)]
-    data = [grp.loc[grp[group_col] == r, value_col].to_numpy() for r in order]
-
+def grouped_boxplot(ax: plt.Axes, df: pd.DataFrame, value_col: str, ylabel: str) -> None:
+    groups = []
+    labels = []
+    for regime in REGIMES:
+        vals = pd.to_numeric(df.loc[df["regime_name"].astype(str).str.lower().eq(regime), value_col], errors="coerce").dropna().to_numpy()
+        if vals.size:
+            groups.append(vals)
+            labels.append(regime)
+    if not groups:
+        raise ValueError(f"No finite values for {value_col}")
     try:
         bp = ax.boxplot(
-            data,
-            tick_labels=order,
+            groups,
+            tick_labels=labels,
             patch_artist=True,
             showfliers=False,
             widths=0.62,
-            medianprops=dict(linewidth=1.5, color="black"),
+            medianprops={"linewidth": 1.5, "color": "black"},
         )
     except TypeError:
         bp = ax.boxplot(
-            data,
-            labels=order,
+            groups,
+            labels=labels,
             patch_artist=True,
             showfliers=False,
             widths=0.62,
-            medianprops=dict(linewidth=1.5, color="black"),
+            medianprops={"linewidth": 1.5, "color": "black"},
         )
-
-    for patch, r in zip(bp["boxes"], order):
-        patch.set_facecolor(COLORS.get(r, COLORS["unknown"]))
+    for patch, label in zip(bp["boxes"], labels):
+        patch.set_facecolor(COLORS.get(label, COLORS["unknown"]))
         patch.set_alpha(0.42)
-
     ax.set_xlabel("Regime")
     ax.set_ylabel(ylabel)
     ax.grid(True, axis="y", alpha=0.25)
 
 
-def make_figure5_residual_diagnostics(root: Path, outdir: Path) -> None:
-    df = read_csv_safe(fnug_combined_panel_path(root)).copy()
-    df = filter_fnug_diagnostics_rows(df)
-
-    regime_col = pick_col(df, ["regime_name", "regime", "market_regime", "state_name"], required=True)
-    delta_col = pick_col(df, ["residual_delta_exposure"], required=True)
-    vega_col = pick_col(df, ["residual_vega_exposure"], required=True)
-    trust_col = pick_col(df, ["global_trust_mean"], required=True)
-    factor_l2_col = pick_col(df, ["residual_factor_l2"], required=False)
-    excess_loss_col = pick_col(df, ["excess_loss_norm"], required=False)
-
-    df = df.copy()
-    df["_residual_delta_scaled"] = pd.to_numeric(df[delta_col], errors="coerce") * 1e5
-    df["_residual_vega_scaled"] = pd.to_numeric(df[vega_col], errors="coerce") * 1e6
-    df["_global_trust"] = pd.to_numeric(df[trust_col], errors="coerce")
+def make_figure5(results_dir: Path, outdir: Path) -> None:
+    panel = pd.read_csv(analysis_path(results_dir, "e1008_final_combined_episode_panel.csv"), low_memory=False)
+    df = panel.loc[panel["model"].eq("HedgeSet-latent")].copy()
+    df["_residual_delta_scaled"] = pd.to_numeric(df["residual_delta_exposure"], errors="coerce") * 1e5
+    df["_residual_vega_scaled"] = pd.to_numeric(df["residual_vega_exposure"], errors="coerce") * 1e6
+    df["_global_trust"] = pd.to_numeric(df["global_trust_mean"], errors="coerce")
 
     fig, axes = plt.subplots(1, 3, figsize=(13.2, 4.35), constrained_layout=True)
-    grouped_boxplot_fixed_order(axes[0], df, regime_col, "_residual_delta_scaled", r"Residual delta exposure ($\times 10^{-5}$)")
-    grouped_boxplot_fixed_order(axes[1], df, regime_col, "_residual_vega_scaled", r"Residual vega exposure ($\times 10^{-6}$)")
-    grouped_boxplot_fixed_order(axes[2], df, regime_col, "_global_trust", "Global trust gate")
+    grouped_boxplot(axes[0], df, "_residual_delta_scaled", r"Residual delta exposure ($\times 10^{-5}$)")
+    grouped_boxplot(axes[1], df, "_residual_vega_scaled", r"Residual vega exposure ($\times 10^{-6}$)")
+    grouped_boxplot(axes[2], df, "_global_trust", "Global trust gate")
     axes[2].set_ylim(0.0, min(1.0, max(0.65, float(np.nanquantile(df["_global_trust"], 0.99)) + 0.05)))
-
-    save_png_pdf(fig, outdir, "figure5_residual_diagnostics")
+    save_figure(fig, outdir, "figure5_residual_diagnostics")
     plt.close(fig)
 
-    agg_cols = {
-        delta_col: ["mean", "median", "std"],
-        vega_col: ["mean", "median", "std"],
-        trust_col: ["mean", "median", "std"],
-    }
-    if factor_l2_col is not None:
-        agg_cols[factor_l2_col] = ["mean", "median", "std"]
-    if excess_loss_col is not None:
-        agg_cols[excess_loss_col] = ["mean", "median", "std"]
-    df.groupby(regime_col).agg(agg_cols).to_csv(
-        outdir / "figure5_regime_diagnostic_summary.csv",
-        lineterminator="\n",
-    )
+    summary = df.groupby("regime_name").agg({
+        "residual_delta_exposure": ["mean", "median", "std"],
+        "residual_vega_exposure": ["mean", "median", "std"],
+        "global_trust_mean": ["mean", "median", "std"],
+        "residual_factor_l2": ["mean", "median", "std"],
+        "excess_loss_norm": ["mean", "median", "std"],
+    })
+    summary.to_csv(outdir / "figure5_regime_diagnostic_summary.csv", lineterminator="\n")
 
-# -----------------------------------------------------------------------------
-# Main
-# -----------------------------------------------------------------------------
+
 def main() -> None:
-    global FNUG_PANEL_FILE, FNUG_COMBINED_PANEL_FILE
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True, help="Path to project root containing results/hedgeset, or directly to results")
-    parser.add_argument("--outdir", default="paper_figures", help="Output directory for figures")
-    parser.add_argument("--fnug-run", default=METHOD_DIRS["FNUG"], help="FNUG run directory under results/hedgeset")
-    parser.add_argument("--fnug-panel-file", default=FNUG_PANEL_FILE, help="Per-cell FNUG episode panel filename")
-    parser.add_argument("--fnug-combined-panel-file", default=FNUG_COMBINED_PANEL_FILE, help="Analysis-level combined FNUG panel filename")
+    parser.add_argument("--input", required=True, help="Repository root or results directory containing analysis/e1008_*.csv")
+    parser.add_argument("--outdir", default="results/paper_figures", help="Output directory")
     args = parser.parse_args()
 
-    METHOD_DIRS["FNUG"] = args.fnug_run
-    FNUG_PANEL_FILE = args.fnug_panel_file
-    FNUG_COMBINED_PANEL_FILE = args.fnug_combined_panel_file
-
-    root = resolve_results_root(args.input)
+    results_dir = resolve_results_dir(args.input)
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Resolved root: {root}")
+    print(f"Resolved results directory: {results_dir}")
     print(f"Saving figures to: {outdir}")
-
-    make_figure2_tail_survival(root, outdir)
+    make_figure2(results_dir, outdir)
     print("Saved Figure 2")
-
-    make_figure3_paired_excess_vs_ls(root, outdir, sort_mode="ls_loss")
+    make_figure3(results_dir, outdir)
     print("Saved Figure 3")
-
-    make_figure4_heatmap(root, outdir)
+    make_figure4(results_dir, outdir)
     print("Saved Figure 4")
-
-    make_figure5_residual_diagnostics(root, outdir)
+    make_figure5(results_dir, outdir)
     print("Saved Figure 5")
-
     print("All done.")
 
 

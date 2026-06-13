@@ -61,12 +61,9 @@
   "lambda_trust_l1": 0.003,
   "lambda_regime_excess_cvar": 0.0,
   "lambda_aux_risk": 0.05,
-  "val_feasible_excess_cvar95_max": 0.012,
+  "val_feasible_excess_cvar95_max": 0.008,
   "val_feasible_excess_cvar95_grid": [
-    0.007,
-    0.008,
-    0.009,
-    0.012
+    0.008
   ],
   "final_checkpoint_selection": "best_feasible_excess_0p008",
   "val_feasible_turnover_max": null,

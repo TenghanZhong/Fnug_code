@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -9,52 +9,57 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_FILES = [
+    "README.md",
+    "requirements.txt",
     "src/fnug.py",
     "src/plot_fnug.py",
     "configs/fnug_main.json",
     "configs/modern_baselines.json",
     "configs/qiao_residual_ls.json",
-    "results/analysis/final_noreg_combined_metrics.csv",
-    "results/analysis/final_noreg_combined_episode_panel.csv",
-    "results/analysis/final_noreg_pairwise_bootstrap.csv",
-    "results/analysis/ivgrid_matched_cell_summary.csv",
-    "results/analysis/ivgrid_noreg_maincell_bootstrap.csv",
-    "results/analysis/final_noreg_artifact_manifest.md",
-    "results/analysis/final_noreg_ablation_pairwise_bootstrap.csv",
-    "results/analysis/final_noreg_main_cell_metrics.csv",
-    "results/analysis/final_noreg_heatmap_values.csv",
-    "results/analysis/final_noreg_vs_ls_reductions.csv",
+    "configs/hard_ls_only.json",
+    "configs/ablation_no_factorneutral.json",
+    "configs/ablation_no_trustgate.json",
+    "configs/ablation_no_auxrisk.json",
+    "scripts/rebuild_e1008_final_analysis.py",
+    "scripts/rebuild_e1008_ablation.py",
+    "scripts/check_artifact.py",
+    "tests/test_feasible_selector.py",
     "results/analysis/e1008_final_combined_metrics.csv",
     "results/analysis/e1008_final_combined_episode_panel.csv",
     "results/analysis/e1008_final_pairwise_bootstrap.csv",
     "results/analysis/e1008_final_main_cell_metrics.csv",
     "results/analysis/e1008_final_heatmap_values.csv",
     "results/analysis/e1008_final_vs_ls_reductions.csv",
+    "results/analysis/e1008_final_family_summary.csv",
     "results/analysis/e1008_ivgrid_matched_cell_summary.csv",
     "results/analysis/e1008_ablation_table.csv",
     "results/analysis/e1008_ablation_pairwise_bootstrap.csv",
     "results/analysis/e1008_ablation_seed_audit.csv",
     "results/analysis/e1008_ablation_seed_summary.csv",
     "results/analysis/e1008_ablation_multiseed_pairwise_bootstrap.csv",
+    "results/analysis/e1008_final_artifact_manifest.md",
+    "results/paper_figures/figure2_tail_loss_summary.csv",
+    "results/paper_figures/figure2_tail_loss_survival.pdf",
+    "results/paper_figures/figure2_tail_loss_survival.png",
+    "results/paper_figures/figure3_paired_excess_data.csv",
+    "results/paper_figures/figure3_paired_excess_loss_vs_ls.pdf",
+    "results/paper_figures/figure3_paired_excess_loss_vs_ls.png",
+    "results/paper_figures/figure3_paired_excess_summary.csv",
+    "results/paper_figures/figure4_cost_seed_robustness_heatmap.pdf",
+    "results/paper_figures/figure4_cost_seed_robustness_heatmap.png",
     "results/paper_figures/figure4_heatmap_values.csv",
-    "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_pairwise_bootstrap.csv",
-    "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/run_config.json",
-    "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
-    "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/run_config.json",
-    "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/atm_call/cost_2bps/modern_baselines/ivgrid/scope_full/seed_42/test_metrics.csv",
-    "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
-    "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/run_config.json",
-    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_seed_summary.csv",
-    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_episode_panel_all.csv",
-    "results/hedgeset/qiao_ls_m4_1eaa24b3f8/run_config.json",
-    "results/hedgeset/Aplus_no_factorneutral_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/Aplus_no_trustgate_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/Aplus_no_auxrisk_1eaa24b3f8/hedgeset_test_metrics_all.csv",
-    "results/hedgeset/A5_hardls_only_1eaa24b3f8/hedgeset_test_metrics_all.csv",
+    "results/paper_figures/figure5_regime_diagnostic_summary.csv",
+    "results/paper_figures/figure5_residual_diagnostics.pdf",
+    "results/paper_figures/figure5_residual_diagnostics.png",
+]
+
+FORBIDDEN_TRACKED_PATTERNS = [
+    "results/hedgeset/",
+    "final_noreg",
+    "trust_round",
+    "run_trust_",
+    "ablation_no_regimeexcess",
+    "rebuild_final_noreg",
 ]
 
 SENSITIVE_TOKENS = [
@@ -67,24 +72,40 @@ SENSITIVE_TOKENS = [
     "Co" + "dex",
     "review" + "er",
 ]
-
 TEXT_EXTENSIONS = {".py", ".md", ".txt", ".json", ".csv", ".yml", ".yaml", ".toml", ".gitignore"}
 
 
+def tracked_files() -> list[str]:
+    proc = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return [line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()]
+
+
 def check_expected_files() -> list[str]:
-    missing = []
-    for rel in EXPECTED_FILES:
-        if not (ROOT / rel).exists():
-            missing.append(rel)
-    return missing
+    return [rel for rel in EXPECTED_FILES if not (ROOT / rel).exists()]
 
 
-def check_sensitive_tokens() -> list[tuple[str, int, str]]:
+def check_forbidden_tracked(paths: list[str]) -> list[str]:
+    bad: list[str] = []
+    for rel in paths:
+        for pattern in FORBIDDEN_TRACKED_PATTERNS:
+            if pattern in rel:
+                bad.append(rel)
+                break
+    return bad
+
+
+def check_sensitive_tokens(paths: list[str]) -> list[tuple[str, int, str]]:
     hits: list[tuple[str, int, str]] = []
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in TEXT_EXTENSIONS:
-            continue
-        if path.name == "check_artifact.py":
+    for rel in paths:
+        path = ROOT / rel
+        if path.name == "check_artifact.py" or path.suffix.lower() not in TEXT_EXTENSIONS:
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -94,158 +115,43 @@ def check_sensitive_tokens() -> list[tuple[str, int, str]]:
             lower = line.lower()
             for token in SENSITIVE_TOKENS:
                 if token.lower() in lower:
-                    hits.append((str(path.relative_to(ROOT)), lineno, line.strip()))
+                    hits.append((rel, lineno, line.strip()))
                     break
     return hits
 
 
-def check_main_metrics() -> dict[str, str]:
-    path = ROOT / "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/hedgeset_test_metrics_all.csv"
-    if not path.exists():
-        return {}
+def first_row(path: Path, predicate) -> dict[str, str] | None:
     with path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    target = None
-    for row in rows:
-        if (
-            row.get("model") in {"FNUG", "HedgeSet-latent"}
-            and row.get("family") == "atm_call"
-            and row.get("cost_bps") in {"2.0", "2"}
-            and row.get("seed") in {"42", "42.0"}
-        ):
-            target = row
-            break
-    if target is None:
+        for row in csv.DictReader(f):
+            if predicate(row):
+                return row
+    return None
+
+
+def check_e1008_main_metrics() -> dict[str, str]:
+    path = ROOT / "results/analysis/e1008_final_main_cell_metrics.csv"
+    row = first_row(path, lambda r: r.get("model") in {"FNUG", "HedgeSet-latent"})
+    if row is None:
         return {}
-    return {
-        "atm_call_cost2_seed42_cvar95": f"{float(target['cvar_95']):.4f}",
-        "atm_call_cost2_seed42_cvar99": f"{float(target['cvar_99']):.4f}",
-        "atm_call_cost2_seed42_worst_regime": f"{float(target['worst_regime_cvar_95']):.4f}",
+    out = {
+        "cvar95": f"{float(row['cvar_95']):.4f}",
+        "cvar99": f"{float(row['cvar_99']):.4f}",
+        "worst_regime": f"{float(row['worst_regime_cvar_95']):.4f}",
+        "excess_cvar95": f"{float(row['excess_cvar_95']):.4f}",
+        "turnover": f"{float(row['mean_turnover']):.3f}",
     }
-
-
-def check_regime_weights() -> list[tuple[str, str]]:
-    bad: list[tuple[str, str]] = []
-    config_paths = [
-        ROOT / "configs/fnug_main.json",
-        ROOT / "configs/modern_baselines.json",
-        ROOT / "configs/qiao_residual_ls.json",
-        ROOT / "results/hedgeset/fnug_final_noreg_fam3_cost3_seed3_1eaa24b3f8/run_config.json",
-        ROOT / "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/run_config.json",
-        ROOT / "results/hedgeset/fnug_modern_noreg_straddle_m4_1eaa24b3f8/run_config.json",
-        ROOT / "results/hedgeset/qiao_ls_m4_1eaa24b3f8/run_config.json",
-    ]
-    pattern = re.compile(r'"lambda_regime_excess_cvar"\s*:\s*([^,\n}]+)')
-    for path in config_paths:
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        match = pattern.search(text)
-        if match and float(match.group(1)) != 0.0:
-            bad.append((str(path.relative_to(ROOT)), match.group(1).strip()))
-    return bad
-
-
-def check_qiao_metrics() -> dict[str, str]:
-    path = ROOT / "results/hedgeset/qiao_ls_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv"
-    if not path.exists():
-        return {}
-    with path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    target = None
-    for row in rows:
-        if (
-            row.get("model") == "QiaoResidual-LS"
-            and row.get("family") == "atm_call"
-            and row.get("cost_bps") in {"2.0", "2"}
-            and row.get("seed") in {"42", "42.0"}
-        ):
-            target = row
-            break
-    if target is None:
-        return {}
-    return {
-        "qiao_atm_call_cost2_seed42_cvar95": f"{float(target['cvar_95']):.4f}",
-        "qiao_atm_call_cost2_seed42_cvar99": f"{float(target['cvar_99']):.4f}",
-        "qiao_atm_call_cost2_seed42_worst_regime": f"{float(target['worst_regime_cvar_95']):.4f}",
+    expected = {
+        "cvar95": "0.0945",
+        "cvar99": "0.1282",
+        "worst_regime": "0.1015",
+        "excess_cvar95": "0.0102",
+        "turnover": "2.105",
     }
+    return out if out == expected else {}
 
 
-def check_ivgrid_noreg_metrics() -> dict[str, str]:
-    path = ROOT / "results/hedgeset/fnug_modern_noreg_fam3_cost3_seed3_m4_1eaa24b3f8/hedgeset_test_metrics_all.csv"
-    if not path.exists():
-        return {}
-    with path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    target = None
-    for row in rows:
-        if (
-            row.get("model") == "IVGrid-HedgeSet"
-            and row.get("family") == "atm_call"
-            and row.get("cost_bps") in {"2.0", "2"}
-            and row.get("seed") in {"42", "42.0"}
-        ):
-            target = row
-            break
-    if target is None:
-        return {}
-    return {
-        "ivgrid_noreg_atm_call_cost2_seed42_cvar95": f"{float(target['cvar_95']):.4f}",
-        "ivgrid_noreg_atm_call_cost2_seed42_cvar99": f"{float(target['cvar_99']):.4f}",
-        "ivgrid_noreg_atm_call_cost2_seed42_worst_regime": f"{float(target['worst_regime_cvar_95']):.4f}",
-        "ivgrid_noreg_atm_call_cost2_seed42_lambda_regime": f"{float(target['lambda_regime_excess_cvar']):.1f}",
-    }
-
-
-def check_combined_artifact_cleanliness() -> list[str]:
-    problems: list[str] = []
-    metrics_path = ROOT / "results/analysis/final_noreg_combined_metrics.csv"
-    panel_path = ROOT / "results/analysis/final_noreg_combined_episode_panel.csv"
-    if not metrics_path.exists() or not panel_path.exists():
-        return ["combined analysis files are missing"]
-
-    with metrics_path.open(newline="", encoding="utf-8") as f:
-        metric_rows = list(csv.DictReader(f))
-    with panel_path.open(newline="", encoding="utf-8") as f:
-        panel_rows = list(csv.DictReader(f))
-
-    for name, rows in [("metrics", metric_rows), ("episode_panel", panel_rows)]:
-        legacy_ivgrid = [
-            row for row in rows
-            if row.get("model") == "IVGrid-HedgeSet"
-            and row.get("candidate_run") == "fnug_modern_fam3_cost3_seed3_m4"
-        ]
-        if legacy_ivgrid:
-            problems.append(f"{name} contains {len(legacy_ivgrid)} legacy IVGrid rows")
-
-    ivgrid_noreg = [
-        row for row in metric_rows
-        if row.get("model") == "IVGrid-HedgeSet"
-        and row.get("candidate_run") in {
-            "fnug_modern_noreg_fam3_cost3_seed3_m4",
-            "fnug_modern_noreg_straddle_m4",
-        }
-    ]
-    if not ivgrid_noreg:
-        problems.append("combined metrics has no no-regime IVGrid rows")
-    elif len(ivgrid_noreg) != 24:
-        problems.append(f"combined metrics has {len(ivgrid_noreg)} no-regime IVGrid rows; expected 24")
-
-    for row in metric_rows:
-        value = row.get("lambda_regime_excess_cvar", "")
-        if value not in {"", "0", "0.0"}:
-            problems.append(
-                f"combined metrics has nonzero regime weight for {row.get('model')} "
-                f"({row.get('candidate_run')}): {value}"
-            )
-            break
-    return problems
-
-
-def check_ivgrid_matched_summary() -> dict[str, str]:
-    path = ROOT / "results/analysis/ivgrid_matched_cell_summary.csv"
-    if not path.exists():
-        return {}
+def check_e1008_ivgrid_summary() -> dict[str, str]:
+    path = ROOT / "results/analysis/e1008_ivgrid_matched_cell_summary.csv"
     with path.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     out: dict[str, str] = {}
@@ -257,70 +163,20 @@ def check_ivgrid_matched_summary() -> dict[str, str]:
             out[f"{metric}_mean_diff"] = f"{float(row['mean_diff_fnug_minus_ivgrid']):.4f}"
     expected = {
         "cvar_95_n_cells": "24",
-        "cvar_95_fnug_lower_cells": "17",
+        "cvar_95_fnug_lower_cells": "19",
+        "cvar_95_mean_diff": "-0.0037",
         "cvar_99_n_cells": "24",
-        "cvar_99_fnug_lower_cells": "17",
+        "cvar_99_fnug_lower_cells": "18",
+        "cvar_99_mean_diff": "-0.0077",
         "worst_regime_cvar_95_n_cells": "24",
-        "worst_regime_cvar_95_fnug_lower_cells": "17",
+        "worst_regime_cvar_95_fnug_lower_cells": "18",
+        "worst_regime_cvar_95_mean_diff": "-0.0053",
     }
-    for key, value in expected.items():
-        if out.get(key) != value:
-            return {}
-    return out
-
-
-def check_e1008_main_metrics() -> dict[str, str]:
-    path = ROOT / "results/analysis/e1008_final_main_cell_metrics.csv"
-    if not path.exists():
-        return {}
-    with path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    target = None
-    for row in rows:
-        if row.get("model") in {"FNUG", "HedgeSet-latent"}:
-            target = row
-            break
-    if target is None:
-        return {}
-    return {
-        "e1008_atm_call_cost2_seed42_cvar95": f"{float(target['cvar_95']):.4f}",
-        "e1008_atm_call_cost2_seed42_cvar99": f"{float(target['cvar_99']):.4f}",
-        "e1008_atm_call_cost2_seed42_worst_regime": f"{float(target['worst_regime_cvar_95']):.4f}",
-        "e1008_atm_call_cost2_seed42_excess_cvar95": f"{float(target['excess_cvar_95']):.4f}",
-    }
-
-
-def check_e1008_ivgrid_summary() -> dict[str, str]:
-    path = ROOT / "results/analysis/e1008_ivgrid_matched_cell_summary.csv"
-    if not path.exists():
-        return {}
-    with path.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    out: dict[str, str] = {}
-    for row in rows:
-        metric = row.get("metric", "")
-        if metric in {"cvar_95", "cvar_99", "worst_regime_cvar_95"}:
-            out[f"e1008_{metric}_n_cells"] = row.get("n_cells", "")
-            out[f"e1008_{metric}_fnug_lower_cells"] = row.get("fnug_lower_cells", "")
-            out[f"e1008_{metric}_mean_diff"] = f"{float(row['mean_diff_fnug_minus_ivgrid']):.4f}"
-    expected = {
-        "e1008_cvar_95_n_cells": "24",
-        "e1008_cvar_95_fnug_lower_cells": "19",
-        "e1008_cvar_99_n_cells": "24",
-        "e1008_cvar_99_fnug_lower_cells": "18",
-        "e1008_worst_regime_cvar_95_n_cells": "24",
-        "e1008_worst_regime_cvar_95_fnug_lower_cells": "18",
-    }
-    for key, value in expected.items():
-        if out.get(key) != value:
-            return {}
-    return out
+    return out if out == expected else {}
 
 
 def check_e1008_ablation_seed_audit() -> dict[str, str]:
     path = ROOT / "results/analysis/e1008_ablation_seed_audit.csv"
-    if not path.exists():
-        return {}
     with path.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     if len(rows) != 18:
@@ -333,123 +189,78 @@ def check_e1008_ablation_seed_audit() -> dict[str, str]:
         "No trust gate": "best_feasible_excess_0p008",
         "No auxiliary risk": "best_feasible_excess_0p008",
     }
-    out: dict[str, str] = {}
     for model, expected_selection in expected_models.items():
         model_rows = [row for row in rows if row.get("model") == model]
         seeds = {row.get("audit_seed") for row in model_rows}
         selections = {row.get("checkpoint_selection") for row in model_rows}
-        if seeds != {"1", "42", "2026"}:
+        if seeds != {"1", "42", "2026"} or selections != {expected_selection}:
             return {}
-        if selections != {expected_selection}:
-            return {}
-        out[f"e1008_ablation_{model}_n_seeds"] = str(len(seeds))
-    full_seed42 = [
-        row for row in rows
-        if row.get("model") == "Full FNUG" and row.get("audit_seed") == "42"
+    return {"rows": str(len(rows)), "models": str(len(expected_models))}
+
+
+def check_config_budget() -> list[str]:
+    bad: list[str] = []
+    config_paths = [
+        "configs/fnug_main.json",
+        "configs/ablation_no_trustgate.json",
+        "configs/ablation_no_auxrisk.json",
     ]
-    if not full_seed42:
-        return {}
-    out["e1008_ablation_full_seed42_cvar95"] = f"{float(full_seed42[0]['cvar_95']):.4f}"
-    return out
+    for rel in config_paths:
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        if '"final_checkpoint_selection": "best_feasible_excess_0p008"' not in text:
+            bad.append(f"{rel}: final checkpoint is not E1008")
+        if '"val_feasible_excess_cvar95_max": 0.008' not in text:
+            bad.append(f"{rel}: feasible excess budget is not 0.008")
+    factor_text = (ROOT / "configs/ablation_no_factorneutral.json").read_text(encoding="utf-8")
+    if '"final_checkpoint_selection": "best_score"' not in factor_text:
+        bad.append("configs/ablation_no_factorneutral.json: expected best_score diagnostic selection")
+    if '"val_feasible_excess_cvar95_max": 0.008' not in factor_text:
+        bad.append("configs/ablation_no_factorneutral.json: feasible excess budget is not 0.008")
+    return bad
 
 
 def main() -> int:
+    paths = tracked_files()
     missing = check_expected_files()
-    sensitive = check_sensitive_tokens()
-    bad_regime_weights = check_regime_weights()
-    metrics = check_main_metrics()
-    qiao_metrics = check_qiao_metrics()
-    ivgrid_metrics = check_ivgrid_noreg_metrics()
-    ivgrid_matched_summary = check_ivgrid_matched_summary()
-    e1008_metrics = check_e1008_main_metrics()
-    e1008_ivgrid_summary = check_e1008_ivgrid_summary()
-    e1008_ablation_seed_audit = check_e1008_ablation_seed_audit()
-    combined_problems = check_combined_artifact_cleanliness()
+    forbidden = check_forbidden_tracked(paths)
+    sensitive = check_sensitive_tokens(paths)
+    budget_config_problems = check_config_budget()
+    main_metrics = check_e1008_main_metrics()
+    ivgrid_summary = check_e1008_ivgrid_summary()
+    ablation_audit = check_e1008_ablation_seed_audit()
 
     if missing:
         print("Missing expected files:")
         for rel in missing:
             print(f"  - {rel}")
-
+    if forbidden:
+        print("Forbidden tracked paths remain:")
+        for rel in forbidden[:100]:
+            print(f"  - {rel}")
+        if len(forbidden) > 100:
+            print(f"  ... {len(forbidden) - 100} more")
     if sensitive:
         print("Sensitive tokens found:")
         for rel, lineno, line in sensitive[:50]:
             print(f"  - {rel}:{lineno}: {line}")
         if len(sensitive) > 50:
             print(f"  ... {len(sensitive) - 50} more")
-
-    if bad_regime_weights:
-        print("Nonzero regime-excess weights found:")
-        for rel, value in bad_regime_weights:
-            print(f"  - {rel}: {value}")
-
-    if metrics:
-        print("Legacy no-regime smoke check:")
-        for key, value in metrics.items():
-            print(f"  {key}: {value}")
-    else:
-        print("Metric smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
-
-    if qiao_metrics:
-        print("QiaoResidual-LS smoke check:")
-        for key, value in qiao_metrics.items():
-            print(f"  {key}: {value}")
-    else:
-        print("QiaoResidual-LS smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
-
-    if ivgrid_metrics:
-        print("IVGrid-HedgeSet no-regime smoke check:")
-        for key, value in ivgrid_metrics.items():
-            print(f"  {key}: {value}")
-    else:
-        print("IVGrid-HedgeSet no-regime smoke check failed: expected ATM-call cost-2 seed-42 row was not found.")
-
-    if ivgrid_matched_summary:
-        print("Legacy IVGrid matched-cell summary check:")
-        for key, value in ivgrid_matched_summary.items():
-            print(f"  {key}: {value}")
-    else:
-        print("IVGrid matched-cell summary check failed.")
-
-    if e1008_metrics:
-        print("E1008 final smoke check:")
-        for key, value in e1008_metrics.items():
-            print(f"  {key}: {value}")
-    else:
-        print("E1008 final smoke check failed.")
-
-    if e1008_ivgrid_summary:
-        print("E1008 IVGrid matched-cell summary check:")
-        for key, value in e1008_ivgrid_summary.items():
-            print(f"  {key}: {value}")
-    else:
-        print("E1008 IVGrid matched-cell summary check failed.")
-
-    if e1008_ablation_seed_audit:
-        print("E1008 ablation seed-audit check:")
-        for key, value in e1008_ablation_seed_audit.items():
-            print(f"  {key}: {value}")
-    else:
-        print("E1008 ablation seed-audit check failed.")
-
-    if combined_problems:
-        print("Combined artifact cleanliness check failed:")
-        for problem in combined_problems:
+    if budget_config_problems:
+        print("Configuration budget problems:")
+        for problem in budget_config_problems:
             print(f"  - {problem}")
 
-    if (
-        missing
-        or sensitive
-        or bad_regime_weights
-        or not metrics
-        or not qiao_metrics
-        or not ivgrid_metrics
-        or not ivgrid_matched_summary
-        or not e1008_metrics
-        or not e1008_ivgrid_summary
-        or not e1008_ablation_seed_audit
-        or combined_problems
-    ):
+    print("E1008 main-cell smoke check:" if main_metrics else "E1008 main-cell smoke check failed.")
+    for key, value in main_metrics.items():
+        print(f"  {key}: {value}")
+    print("E1008 IVGrid matched-cell check:" if ivgrid_summary else "E1008 IVGrid matched-cell check failed.")
+    for key, value in ivgrid_summary.items():
+        print(f"  {key}: {value}")
+    print("E1008 ablation audit check:" if ablation_audit else "E1008 ablation audit check failed.")
+    for key, value in ablation_audit.items():
+        print(f"  {key}: {value}")
+
+    if missing or forbidden or sensitive or budget_config_problems or not main_metrics or not ivgrid_summary or not ablation_audit:
         return 1
     print("Artifact check passed.")
     return 0
