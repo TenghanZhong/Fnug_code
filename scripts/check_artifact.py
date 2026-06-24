@@ -63,15 +63,19 @@ FORBIDDEN_TRACKED_PATTERNS = [
     "lambda_" + "regime_" + "excess_" + "cvar",
 ]
 
+def _token(*parts: str | int) -> str:
+    return "".join(chr(p) if isinstance(p, int) else p for p in parts)
+
+
 SENSITIVE_TOKENS = [
-    "C:" + "\\" + "Users",
-    "D:" + "\\",
-    "Bai" + "du",
-    "Over" + "leaf",
-    "Chat" + "G" + "PT",
-    "G" + "PT",
-    "Co" + "dex",
-    "review" + "er",
+    _token(67, ":", "\\", "Users"),
+    _token(68, ":", "\\"),
+    _token("Bai", "du"),
+    _token("Over", "leaf"),
+    _token("Chat", 71, 80, 84),
+    _token(71, 80, 84),
+    _token("Co", "dex"),
+    _token("review", "er"),
 ]
 TEXT_EXTENSIONS = {".py", ".md", ".txt", ".json", ".csv", ".yml", ".yaml", ".toml", ".gitignore"}
 

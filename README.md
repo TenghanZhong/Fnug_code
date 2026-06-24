@@ -10,8 +10,8 @@ trust penalty 0.003, and factor-neutral residual projection.
 
 Raw SPX option quote data and model checkpoints are not redistributed. The
 repository keeps derived analysis tables and figure files needed to reproduce
-the reported paper numbers without publishing local data paths or raw training
-trees.
+the released E1008 result set without publishing machine-specific paths or raw
+training trees.
 
 ## Contents
 
@@ -36,7 +36,7 @@ trees.
   `scripts/rebuild_e1008_ablation.py`: rebuild the released analysis tables
   from local raw run outputs when those outputs are available.
 - `scripts/check_artifact.py`: verifies the released artifact and checks that
-  local paths or non-release result files are not tracked.
+  machine-specific references or non-release result files are not tracked.
 - `data/README.md`: raw data availability and expected local file layout.
 
 ## Quick Check
@@ -49,8 +49,8 @@ python scripts/check_artifact.py
 ```
 
 The check verifies that only the E1008 public result set is tracked, confirms
-the main ATM-call, 2 bps, seed-42 metrics, checks the 24-cell IVGrid summary,
-and audits the E1008 ablation seed panel.
+the main ATM-call, 2 bps, seed-42 metrics, checks the released IVGrid matched-cell
+summary, and audits the E1008 ablation seed panel.
 
 ## Reproduce Paper Figures
 
@@ -78,8 +78,8 @@ python scripts/rebuild_e1008_final_analysis.py --root <local-results-root> --out
 python scripts/rebuild_e1008_ablation.py --root <local-results-root> --outdir results/analysis
 ```
 
-The checked-in CSV files under `results/analysis/` are the derived outputs used
-by the manuscript.
+The checked-in CSV files under `results/analysis/` are the released derived
+outputs for this artifact.
 
 ## Raw Data
 

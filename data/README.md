@@ -15,7 +15,7 @@ The training/evaluation code expects a directory containing:
 Set the data directory with the `FNUG_DATA_DIR` environment variable before
 running raw-data pipelines.
 
-The repository includes derived result files under `results/` so that paper
+The repository includes derived result files under `results/` so that released
 tables, figures, and paired-bootstrap summaries can be checked without access to
 the licensed raw data.
 
