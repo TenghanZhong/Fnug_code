@@ -30,11 +30,15 @@ training trees.
   ablation summaries and bootstrap outputs.
 - `results/analysis/e1008_ivgrid_matched_cell_summary.csv`: matched IVGrid
   summary for the released E1008 artifact.
+- `results/analysis/e1008_primary_moving_block_bootstrap.csv`: paired
+  moving-block bootstrap summary for the primary CVaR95 comparisons.
 - `results/paper_figures/`: CSV, PDF, and PNG outputs for the manuscript
   figures.
 - `scripts/rebuild_e1008_final_analysis.py` and
   `scripts/rebuild_e1008_ablation.py`: rebuild the released analysis tables
   from local raw run outputs when those outputs are available.
+- `scripts/run_e1008_moving_block_bootstrap.py`: recomputes the primary
+  moving-block bootstrap summary from the released episode panel.
 - `scripts/check_artifact.py`: verifies the released artifact and checks that
   machine-specific references or non-release result files are not tracked.
 - `data/README.md`: raw data availability and expected local file layout.
@@ -50,7 +54,7 @@ python scripts/check_artifact.py
 
 The check verifies that only the E1008 public result set is tracked, confirms
 the main ATM-call, 2 bps, seed-42 metrics, checks the released IVGrid matched-cell
-summary, and audits the E1008 ablation seed panel.
+and moving-block bootstrap summaries, and audits the E1008 ablation seed panel.
 
 ## Reproduce Paper Figures
 

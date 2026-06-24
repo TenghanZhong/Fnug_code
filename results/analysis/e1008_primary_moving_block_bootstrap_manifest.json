@@ -1,0 +1,35 @@
+{
+  "description": "Paired moving-block bootstrap for primary ATM-call / 2 bps / seed 42 CVaR95 checks.",
+  "panel": "results/analysis/e1008_final_combined_episode_panel.csv",
+  "summary": "results/analysis/e1008_primary_moving_block_bootstrap.csv",
+  "draws": null,
+  "model_a": "HedgeSet-latent",
+  "comparisons": [
+    {
+      "model_b": "LSDeltaVega",
+      "label": "confirmatory_vs_ls"
+    },
+    {
+      "model_b": "QiaoResidual-LS",
+      "label": "confirmatory_vs_qiao"
+    },
+    {
+      "model_b": "IVGrid-HedgeSet",
+      "label": "diagnostic_vs_ivgrid"
+    }
+  ],
+  "family": "atm_call",
+  "cost_bps": 2.0,
+  "seed": 42,
+  "alpha": 0.95,
+  "block_lengths": [
+    3,
+    5,
+    10
+  ],
+  "n_boot": 10000,
+  "rng_seed_base": 20260622,
+  "statistic": "CVaR_alpha(loss_model_a) - CVaR_alpha(loss_model_b), recomputed inside each bootstrap draw",
+  "block_protocol": "Overlapping moving blocks sampled by start_date order; same block indices applied to both paired models.",
+  "p_value": "Two-sided centered bootstrap p-value: mean(abs(draw - observed_diff) >= abs(observed_diff))."
+}

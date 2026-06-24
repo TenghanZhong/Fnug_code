@@ -22,6 +22,7 @@ EXPECTED_FILES = [
     "configs/ablation_no_auxrisk.json",
     "scripts/rebuild_e1008_final_analysis.py",
     "scripts/rebuild_e1008_ablation.py",
+    "scripts/run_e1008_moving_block_bootstrap.py",
     "scripts/check_artifact.py",
     "tests/test_feasible_selector.py",
     "results/analysis/e1008_final_combined_metrics.csv",
@@ -32,6 +33,8 @@ EXPECTED_FILES = [
     "results/analysis/e1008_final_vs_ls_reductions.csv",
     "results/analysis/e1008_final_family_summary.csv",
     "results/analysis/e1008_ivgrid_matched_cell_summary.csv",
+    "results/analysis/e1008_primary_moving_block_bootstrap.csv",
+    "results/analysis/e1008_primary_moving_block_bootstrap_manifest.json",
     "results/analysis/e1008_ablation_table.csv",
     "results/analysis/e1008_ablation_pairwise_bootstrap.csv",
     "results/analysis/e1008_ablation_seed_audit.csv",
@@ -75,6 +78,9 @@ SENSITIVE_TOKENS = [
     _token("Chat", 71, 80, 84),
     _token(71, 80, 84),
     _token("Co", "dex"),
+    _token("Open", "AI"),
+    _token("Clau", "de"),
+    _token("Teng", "han"),
     _token("review", "er"),
 ]
 TEXT_EXTENSIONS = {".py", ".md", ".txt", ".json", ".csv", ".yml", ".yaml", ".toml", ".gitignore"}
@@ -167,17 +173,47 @@ def check_e1008_ivgrid_summary() -> dict[str, str]:
             out[f"{metric}_fnug_lower_cells"] = row.get("fnug_lower_cells", "")
             out[f"{metric}_mean_diff"] = f"{float(row['mean_diff_fnug_minus_ivgrid']):.4f}"
     expected = {
-        "cvar_95_n_cells": "24",
-        "cvar_95_fnug_lower_cells": "19",
-        "cvar_95_mean_diff": "-0.0037",
-        "cvar_99_n_cells": "24",
-        "cvar_99_fnug_lower_cells": "18",
-        "cvar_99_mean_diff": "-0.0077",
-        "worst_regime_cvar_95_n_cells": "24",
-        "worst_regime_cvar_95_fnug_lower_cells": "18",
-        "worst_regime_cvar_95_mean_diff": "-0.0053",
+        "cvar_95_n_cells": "27",
+        "cvar_95_fnug_lower_cells": "22",
+        "cvar_95_mean_diff": "-0.0064",
+        "cvar_99_n_cells": "27",
+        "cvar_99_fnug_lower_cells": "21",
+        "cvar_99_mean_diff": "-0.0109",
+        "worst_regime_cvar_95_n_cells": "27",
+        "worst_regime_cvar_95_fnug_lower_cells": "21",
+        "worst_regime_cvar_95_mean_diff": "-0.0084",
     }
     return out if out == expected else {}
+
+
+def check_e1008_mbb_summary() -> dict[str, str]:
+    path = ROOT / "results/analysis/e1008_primary_moving_block_bootstrap.csv"
+    with path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    checks = {
+        "confirmatory_vs_ls": ("-0.0193", "-0.0309", "-0.0093", "0.0020"),
+        "confirmatory_vs_qiao": ("-0.0247", "-0.0344", "-0.0066", "0.0018"),
+        "diagnostic_vs_ivgrid": ("-0.0014", "-0.0095", "0.0059", "0.6719"),
+    }
+    out: dict[str, str] = {}
+    for label, expected in checks.items():
+        match = [
+            row for row in rows
+            if row.get("comparison") == label and row.get("block_length") == "5"
+        ]
+        if len(match) != 1:
+            return {}
+        row = match[0]
+        values = (
+            f"{float(row['observed_diff']):.4f}",
+            f"{float(row['ci95_low']):.4f}",
+            f"{float(row['ci95_high']):.4f}",
+            f"{float(row['p_two_sided_centered']):.4f}",
+        )
+        if values != expected:
+            return {}
+        out[label] = ",".join(values)
+    return out
 
 
 def check_e1008_ablation_seed_audit() -> dict[str, str]:
@@ -232,6 +268,7 @@ def main() -> int:
     budget_config_problems = check_config_budget()
     main_metrics = check_e1008_main_metrics()
     ivgrid_summary = check_e1008_ivgrid_summary()
+    mbb_summary = check_e1008_mbb_summary()
     ablation_audit = check_e1008_ablation_seed_audit()
 
     if missing:
@@ -261,11 +298,14 @@ def main() -> int:
     print("E1008 IVGrid matched-cell check:" if ivgrid_summary else "E1008 IVGrid matched-cell check failed.")
     for key, value in ivgrid_summary.items():
         print(f"  {key}: {value}")
+    print("E1008 primary MBB check:" if mbb_summary else "E1008 primary MBB check failed.")
+    for key, value in mbb_summary.items():
+        print(f"  {key}: {value}")
     print("E1008 ablation audit check:" if ablation_audit else "E1008 ablation audit check failed.")
     for key, value in ablation_audit.items():
         print(f"  {key}: {value}")
 
-    if missing or forbidden or sensitive or budget_config_problems or not main_metrics or not ivgrid_summary or not ablation_audit:
+    if missing or forbidden or sensitive or budget_config_problems or not main_metrics or not ivgrid_summary or not mbb_summary or not ablation_audit:
         return 1
     print("Artifact check passed.")
     return 0
