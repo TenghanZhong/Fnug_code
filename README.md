@@ -29,7 +29,7 @@ training trees.
 - `results/analysis/e1008_ablation_*.csv`: ATM-call, 2 bps, three-seed
   ablation summaries and bootstrap outputs.
 - `results/analysis/e1008_ivgrid_matched_cell_summary.csv`: matched IVGrid
-  summary used in the manuscript.
+  summary for the released E1008 artifact.
 - `results/paper_figures/`: CSV, PDF, and PNG outputs for the manuscript
   figures.
 - `scripts/rebuild_e1008_final_analysis.py` and
