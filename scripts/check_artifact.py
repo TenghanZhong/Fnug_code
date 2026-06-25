@@ -78,7 +78,7 @@ SENSITIVE_TOKENS = [
     _token("Chat", 71, 80, 84),
     _token(71, 80, 84),
     _token("Co", "dex"),
-    _token("Open", "AI"),
+    _token("Open", 65, 73),
     _token("Clau", "de"),
     _token("Teng", "han"),
     _token("review", "er"),
