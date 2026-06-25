@@ -2927,16 +2927,16 @@ class HARSummaryModel:
 
 def _choose_boosting_backend(require_xgboost: Optional[bool] = None) -> tuple[str, object]:
     """
-    Select the nonlinear summary learner used in the paper tables.
+    Select the nonlinear summary learner used in the reported tables.
 
-    Paper-facing runs should not silently replace XGBoost-Summary with a
-    different backend, because that changes the baseline identity in the result
-    table. By default we require xgboost. For exploratory/local debugging only,
-    set environment variable CIKM_REQUIRE_XGBOOST=0 to allow LightGBM/HGBR
-    fallbacks with explicitly different labels.
+    Released runs should not silently replace XGBoost-Summary with a different
+    backend, because that changes the baseline identity in the result table. By
+    default we require xgboost. For optional exploratory use, set
+    FNUG_REQUIRE_XGBOOST=0 to allow LightGBM/HGBR fallbacks with explicitly
+    different labels.
     """
     if require_xgboost is None:
-        require_xgboost = os.environ.get("CIKM_REQUIRE_XGBOOST", "1") != "0"
+        require_xgboost = os.environ.get("FNUG_REQUIRE_XGBOOST", "1") != "0"
 
     try:
         import xgboost as xgb  # type: ignore
@@ -2944,9 +2944,10 @@ def _choose_boosting_backend(require_xgboost: Optional[bool] = None) -> tuple[st
     except Exception as e:
         if require_xgboost:
             raise ImportError(
-                "Paper reproduction requires xgboost so that the baseline label "
-                "XGBoost-Summary matches the reported table. Install xgboost or "
-                "set CIKM_REQUIRE_XGBOOST=0 for exploratory fallback runs."
+                "Rebuilding the reported tables requires xgboost so that the "
+                "baseline label XGBoost-Summary matches the released outputs. "
+                "Install xgboost or set FNUG_REQUIRE_XGBOOST=0 for exploratory "
+                "fallback runs."
             ) from e
 
     try:
@@ -3691,7 +3692,7 @@ def positive_floor_from_train(y_train: np.ndarray, q: float = 0.05, eps: float =
     Pre-test floor for semivolatility-style targets with structural zero windows.
 
     The floor is estimated only from positive training-period observations, so it
-    is fixed before validation/test evaluation and does not leak future data.
+    is fixed before validation/test evaluation.
     """
     y_train = np.asarray(y_train, dtype=float)
     pos = y_train[np.isfinite(y_train) & (y_train > eps)]
@@ -3715,7 +3716,7 @@ def qlike_loss_series(
         rows remain NaN rather than being assigned an arbitrary fixed penalty.
     mode='floor':
         Replace both y_true and y_pred by max(value, floor_value). This is the
-        recommended robustness diagnostic for DSV5, whose realized target has
+        robustness diagnostic for DSV5, whose realized target has
         structural zero windows.
     mode='positive_subset':
         Alias of standard, kept for explicit diagnostics.
@@ -3859,7 +3860,7 @@ def dsv5_zero_diagnostics(
     eps: float = 1e-8,
     floor_q: float = 0.05,
 ) -> pd.DataFrame:
-    """Create Appendix diagnostics for the structural-zero DSV5 target."""
+    """Create diagnostics for the structural-zero DSV5 target."""
     y_true = np.asarray(y_true, dtype=float)
     floor = positive_floor_from_train(train_y, q=floor_q, eps=eps)
     rows = []
@@ -3907,11 +3908,11 @@ def save_forecast_prediction_panel(
     pred_map: Dict[str, Dict[str, np.ndarray]],
 ) -> str:
     """
-    Save per-date targets and predictions for appendix diagnostics.
+    Save per-date targets and predictions for diagnostics.
 
-    This is a diagnostic artifact only. It does not change the main forecasting,
-    DM, or surface results. It makes DSV5 zero-window diagnostics, floor
-    sensitivity, and future metric audits reproducible from a single panel.
+    This output does not change the main forecasting, DM, or surface results. It
+    makes DSV5 zero-window diagnostics and floor-sensitivity checks reproducible
+    from a single panel.
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
@@ -3959,7 +3960,7 @@ def build_dsv5_floor_sensitivity_from_prediction_panel(
     """
     Recompute DSV5 floored QLIKE under several training-only floor quantiles.
 
-    This is a robustness table for the nonstandard DSV5 F-QLIKE diagnostic.
+    This table reports the nonstandard DSV5 F-QLIKE diagnostic.
     It uses only test-panel predictions and training-period DSV5 values.
     """
     if not os.path.exists(panel_path):
@@ -4007,7 +4008,7 @@ def build_dsv5_zero_diagnostics_from_prediction_panel(
     """
     Rebuild the DSV5 zero-window diagnostics from the saved prediction panel.
 
-    This lets --paper-diagnostics --diag-dsv5 regenerate both the zero-window
+    This lets the diagnostics regenerate both the zero-window
     table and the floor-sensitivity table without rerunning model evaluation.
     """
     if not os.path.exists(panel_path):
@@ -4049,7 +4050,7 @@ def audit_csv_parquet_equivalence(
     rtol: float = 1e-10,
     atol: float = 1e-12,
 ) -> pd.DataFrame:
-    """Full-value CSV/Parquet audit; stronger than shape/head checks.
+    """Compare CSV and Parquet values, not just shapes or head rows.
 
     Date-like columns are normalized before comparison to avoid false positives
     such as ``2018-01-02`` versus ``2018-01-02 00:00:00``.
@@ -4169,7 +4170,7 @@ def audit_iv_inversion_failures(
     max_rows_per_year: Optional[int] = None,
 ) -> pd.DataFrame:
     """
-    Diagnostic-only scan of midpoint-IV inversion edge cases.
+    Optional scan of midpoint-IV inversion edge cases.
 
     The function does not change preprocessing or cached quote sets. It reports
     midpoint-at/below-intrinsic and direct midpoint-IV inversion failures both
@@ -4358,7 +4359,7 @@ def run_paper_diagnostics(
     diag_iv_failures: bool = False,
     max_rows_per_year: Optional[int] = None,
 ) -> None:
-    """Run diagnostic-only audits without changing trained models or main results."""
+    """Run optional diagnostics without changing trained models or main results."""
     diag_dir = os.path.join(DATA_CFG.results_dir, "diagnostics")
     os.makedirs(diag_dir, exist_ok=True)
 
@@ -4671,7 +4672,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     # -----------------------------
     boosted_label, boosted_preds = fit_boosted_summary_baselines(train_df, val_df, test_df, seed=cfg_train.seed)
 
-    # Fixed-grid neural baselines are exported to a separate appendix CSV.
+    # Fixed-grid neural baselines are exported to a separate reference CSV.
     grid_label = "Grid-CNN"
     grid_tr_label = "Grid-Transformer"
     grid_preds = None
@@ -4821,7 +4822,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     add_model(boosted_label, y_rv5, y_rv21, y_dsv5, y_stress,
               boosted_preds["rv5"]["test"], boosted_preds["rv21"]["test"], boosted_preds["dsv5"]["test"],
               test_scores[boosted_label], cls_thresholds[boosted_label])
-    # Grid-CNN / Grid-Transformer are exported as appendix reference baselines.
+    # Grid-CNN / Grid-Transformer are exported as reference baselines.
     add_model("GARCH", y_rv5, y_rv21, y_dsv5, y_stress,
               garch_pred_rv5, garch_pred_rv21, garch_pred_dsv5, test_scores["GARCH"], cls_thresholds["GARCH"])
 
@@ -5259,7 +5260,7 @@ def save_results(results: Dict[str, dict], out_path: str) -> None:
         ])
         df_dm.to_csv(dm_path, index=False)
 
-    # Appendix diagnostics and robustness tables.
+    # Diagnostics and robustness tables.
     if "__dsv5_zero_diagnostics__" in results:
         diag_path = out_path.replace(".csv", "_dsv5_zero_diagnostics.csv")
         pd.DataFrame(results["__dsv5_zero_diagnostics__"].get("rows", [])).to_csv(diag_path, index=False)
@@ -6035,8 +6036,8 @@ def _liability_feat(
     The policy state exposes both liability delta and liability vega. Vega is
     divided by 100 to match the instrument feature scaling used in HedgeSet
     candidate features.
-    L_t/L0 gives the controller a normalized mark-to-market state without
-    leaking future information.
+    L_t/L0 gives the controller a normalized mark-to-market state using the
+    current liability mark.
     """
     L0_s = max(_safe_float(L0, 1.0), 1.0)
     Lt_s = _safe_float(L_t, L0_s) if L_t is not None else L0_s
@@ -6283,7 +6284,7 @@ def build_hedging_episodes(
         path_dates = available_dates[pos:pos + hedge_cfg.horizon + 1]
         if len(path_dates) != hedge_cfg.horizon + 1:
             continue
-        # Leakage guard: the whole path must remain inside a single split.
+        # Split guard: the whole path must remain inside a single split.
         splits = {_date_split_from_timestamp(d, data_cfg) for d in path_dates}
         if len(splits) != 1:
             skipped += 1
@@ -7525,8 +7526,8 @@ def _assign_hedgeset_regimes(episodes: List[dict], cfg: HedgeSetConfig) -> Dict[
 
     No test information is used.  Medians, scales, and score quantiles are fit
     only on training episodes, then applied unchanged to validation and test.
-    This supports ambiguity-aware robust CVaR training/evaluation without
-    leaking future regime distribution information.
+    This supports ambiguity-aware robust CVaR training/evaluation while keeping
+    validation and test regime labels out of the calibration step.
     """
     if len(episodes) == 0:
         return {"regime_bins": int(getattr(cfg, "regime_bins", 3)), "regime_counts": {}}
@@ -8331,8 +8332,8 @@ def _rollout_hedgeset(agent: Optional[HedgeSetAgent], batch: dict, cfg: HedgeSet
         if residual_enabled and len(aux_preds) > len(aux_targets):
             # Dense auxiliary targets use only realized one-step quantities and
             # the standalone base hedge.  They are scaled to be O(1) and do not
-            # leak future information into evaluation because they are training
-            # losses computed inside historical episodes.
+            # They are training losses computed inside historical episodes and
+            # are not evaluation inputs.
             base_step_loss_norm = (-base_step_pnl) / scale
             liab_step_loss_norm = dL / scale
             underlier_ret_abs = torch.abs(dP[:, 0] / P[:, t, 0].clamp(min=1e-6)) if P.shape[-1] > 0 else torch.zeros_like(base_step_loss_norm)
@@ -10535,21 +10536,21 @@ def main():
     parser.add_argument("--multi-seed-no-setonly", action="store_true",
                         help="With --multi-seed, skip set-forecast-only ablation runs.")
     parser.add_argument("--no-grid-appendix", action="store_true",
-                        help="Do not train/export Grid-CNN and Grid-Transformer appendix baselines during evaluation.")
+                        help="Do not train/export Grid-CNN and Grid-Transformer additional baselines during evaluation.")
     parser.add_argument("--set-only-side-only", action="store_true",
                         help="With --set-forecast-only, run only the side-info version and skip the no-side variant.")
     parser.add_argument("--paper-diagnostics", action="store_true",
-                        help="Run diagnostic-only audits without changing trained models or main results.")
+                        help="Run optional diagnostics without changing trained models or main results.")
     parser.add_argument("--diag-csv-parquet", action="store_true",
-                        help="Audit CSV/Parquet value equivalence for raw data files.")
+                        help="Compare CSV/Parquet value equivalence for raw data files.")
     parser.add_argument("--diag-dsv5", action="store_true",
                         help="Rebuild DSV5 floor-sensitivity diagnostics from the prediction panel.")
     parser.add_argument("--diag-iv-failures", action="store_true",
-                        help="Audit midpoint-IV inversion failure rates from raw option files.")
+                        help="Summarize midpoint-IV inversion failure rates from raw option files.")
     parser.add_argument("--diag-max-rows-per-year", type=int, default=None,
                         help="Optional row cap per option year for IV inversion diagnostics.")
     parser.add_argument("--grid-side-appendix", action="store_true",
-                        help="Train/export side-information-matched Grid-CNN+Side and Grid-Transformer+Side appendix baselines.")
+                        help="Train/export side-information-matched Grid-CNN+Side and Grid-Transformer+Side baselines.")
 
     # Hedging/control extension.
     parser.add_argument("--hedging", action="store_true",
@@ -10716,7 +10717,7 @@ def main():
                 pv.append("ambiguous")
                 args.hedgeset_policy_variants = ",".join(pv)
         if args.hedgeset_paper_suite:
-            # Paper suite should include the liquid candidate-set sweep by default.
+            # Reported suite should include the liquid candidate-set sweep by default.
             # Preserve an explicitly custom --hedgeset-candidate-sweeps value,
             # but upgrade the parser default "main,underlying" to the full suite.
             _sweeps_txt = str(args.hedgeset_candidate_sweeps).strip()

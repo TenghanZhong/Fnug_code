@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Regenerate FNUG paper figures from the released E1008 analysis files."""
+"""Regenerate FNUG figures from the released E1008 analysis files."""
 
 from __future__ import annotations
 

@@ -10,13 +10,12 @@ trust penalty 0.003, and factor-neutral residual projection.
 
 Raw SPX option quote data and model checkpoints are not redistributed. The
 repository keeps derived analysis tables and figure files needed to reproduce
-the released E1008 result set without publishing machine-specific paths or raw
-training trees.
+the released E1008 result set.
 
 ## Contents
 
 - `src/fnug.py`: training, evaluation, baseline, and selector code.
-- `src/plot_fnug.py`: regenerates the paper figures from released E1008
+- `src/plot_fnug.py`: regenerates the released figures from E1008
   analysis files.
 - `configs/fnug_main.json`: released budgeted FNUG configuration.
 - `configs/ablation_no_factorneutral.json`,
@@ -36,12 +35,12 @@ training trees.
   figures.
 - `scripts/rebuild_e1008_final_analysis.py` and
   `scripts/rebuild_e1008_ablation.py`: rebuild the released analysis tables
-  from local raw run outputs when those outputs are available.
+  from source run outputs when those outputs are available.
 - `scripts/run_e1008_moving_block_bootstrap.py`: recomputes the primary
   moving-block bootstrap summary from the released episode panel.
 - `data/README.md`: raw data availability and expected local file layout.
 
-## Reproduce Paper Figures
+## Reproduce Figures
 
 The figures can be regenerated from the released derived results:
 
@@ -59,7 +58,7 @@ Expected outputs:
 
 ## Rebuild Analysis Tables
 
-If the local raw run outputs are available, rebuild the released analysis files
+If source run outputs are available, rebuild the released analysis files
 with:
 
 ```bash
