@@ -39,22 +39,7 @@ training trees.
   from local raw run outputs when those outputs are available.
 - `scripts/run_e1008_moving_block_bootstrap.py`: recomputes the primary
   moving-block bootstrap summary from the released episode panel.
-- `scripts/check_artifact.py`: verifies the released artifact and checks that
-  machine-specific references or non-release result files are not tracked.
 - `data/README.md`: raw data availability and expected local file layout.
-
-## Quick Check
-
-From the repository root:
-
-```bash
-pip install -r requirements.txt
-python scripts/check_artifact.py
-```
-
-The check verifies that only the E1008 public result set is tracked, confirms
-the main ATM-call, 2 bps, seed-42 metrics, checks the released IVGrid matched-cell
-and moving-block bootstrap summaries, and audits the E1008 ablation seed panel.
 
 ## Reproduce Paper Figures
 
