@@ -4353,7 +4353,7 @@ def audit_iv_inversion_failures(
     logger.info(f"IV inversion diagnostics saved -> {out_path}")
     return out_df
 
-def run_paper_diagnostics(
+def run_diagnostics(
     diag_csv_parquet: bool = False,
     diag_dsv5: bool = False,
     diag_iv_failures: bool = False,
@@ -4476,8 +4476,8 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
                     primary_model_name: str = "OurModel",
                     use_side_info: bool = True,
                     include_reconstruction: bool = True,
-                    include_grid_appendix: bool = True,
-                    include_grid_side_appendix: bool = False) -> Dict[str, dict]:
+                    include_grid_reference: bool = True,
+                    include_grid_side_reference: bool = False) -> Dict[str, dict]:
     device = torch.device(cfg_train.device if torch.cuda.is_available() else "cpu")
     surface_model.eval()
     heads.eval()
@@ -4677,7 +4677,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     grid_tr_label = "Grid-Transformer"
     grid_preds = None
     grid_tr_preds = None
-    if include_grid_appendix:
+    if include_grid_reference:
         grid_preds = fit_grid_cnn_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed)
         grid_tr_preds = fit_grid_transformer_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed)
 
@@ -4686,7 +4686,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     grid_side_tr_label = "Grid-Transformer+Side"
     grid_side_preds = None
     grid_side_tr_preds = None
-    if include_grid_side_appendix:
+    if include_grid_side_reference:
         grid_side_preds = fit_grid_side_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed, model_kind="cnn")
         grid_side_tr_preds = fit_grid_side_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed, model_kind="transformer")
 
@@ -4913,8 +4913,8 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
             add_dm_result(tag, target_name, baseline_name, y_true, our_pred, pred_dict[target_name])
 
     # Fixed-grid reference baselines.
-    appendix_grid_rows = []
-    if include_grid_appendix and grid_preds is not None and grid_tr_preds is not None:
+    reference_grid_rows = []
+    if include_grid_reference and grid_preds is not None and grid_tr_preds is not None:
         for _glabel, _gpreds in [(grid_label, grid_preds), (grid_tr_label, grid_tr_preds)]:
             for _target, _y in [("rv5", y_rv5), ("rv21", y_rv21), ("dsv5", y_dsv5)]:
                 _m = regression_metrics(
@@ -4923,14 +4923,14 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
                     task=_target,
                     dsv5_floor=dsv5_floor if _target == "dsv5" else None,
                 )
-                appendix_grid_rows.append({
+                reference_grid_rows.append({
                     "model": _glabel,
                     "target": _target,
                     **_m,
                 })
 
-    appendix_grid_side_rows = []
-    if include_grid_side_appendix and grid_side_preds is not None and grid_side_tr_preds is not None:
+    reference_grid_side_rows = []
+    if include_grid_side_reference and grid_side_preds is not None and grid_side_tr_preds is not None:
         for _glabel, _gpreds in [(grid_side_label, grid_side_preds), (grid_side_tr_label, grid_side_tr_preds)]:
             for _target, _y in [("rv5", y_rv5), ("rv21", y_rv21), ("dsv5", y_dsv5)]:
                 _m = regression_metrics(
@@ -4939,7 +4939,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
                     task=_target,
                     dsv5_floor=dsv5_floor if _target == "dsv5" else None,
                 )
-                appendix_grid_side_rows.append({
+                reference_grid_side_rows.append({
                     "model": _glabel,
                     "target": _target,
                     **_m,
@@ -4956,10 +4956,10 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
         boosted_label: boosted_preds["dsv5"]["test"],
         "GARCH": garch_pred_dsv5,
     }
-    if include_grid_appendix and grid_preds is not None and grid_tr_preds is not None:
+    if include_grid_reference and grid_preds is not None and grid_tr_preds is not None:
         dsv5_pred_map[grid_label] = grid_preds["dsv5"]["test"]
         dsv5_pred_map[grid_tr_label] = grid_tr_preds["dsv5"]["test"]
-    if include_grid_side_appendix and grid_side_preds is not None and grid_side_tr_preds is not None:
+    if include_grid_side_reference and grid_side_preds is not None and grid_side_tr_preds is not None:
         dsv5_pred_map[grid_side_label] = grid_side_preds["dsv5"]["test"]
         dsv5_pred_map[grid_side_tr_label] = grid_side_tr_preds["dsv5"]["test"]
 
@@ -4975,10 +4975,10 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
         boosted_label: {"rv5": boosted_preds["rv5"]["test"], "rv21": boosted_preds["rv21"]["test"], "dsv5": boosted_preds["dsv5"]["test"]},
         "GARCH": {"rv5": garch_pred_rv5, "rv21": garch_pred_rv21, "dsv5": garch_pred_dsv5},
     }
-    if include_grid_appendix and grid_preds is not None and grid_tr_preds is not None:
+    if include_grid_reference and grid_preds is not None and grid_tr_preds is not None:
         diag_pred_map[grid_label] = {"rv5": grid_preds["rv5"]["test"], "rv21": grid_preds["rv21"]["test"], "dsv5": grid_preds["dsv5"]["test"]}
         diag_pred_map[grid_tr_label] = {"rv5": grid_tr_preds["rv5"]["test"], "rv21": grid_tr_preds["rv21"]["test"], "dsv5": grid_tr_preds["dsv5"]["test"]}
-    if include_grid_side_appendix and grid_side_preds is not None and grid_side_tr_preds is not None:
+    if include_grid_side_reference and grid_side_preds is not None and grid_side_tr_preds is not None:
         diag_pred_map[grid_side_label] = {"rv5": grid_side_preds["rv5"]["test"], "rv21": grid_side_preds["rv21"]["test"], "dsv5": grid_side_preds["dsv5"]["test"]}
         diag_pred_map[grid_side_tr_label] = {"rv5": grid_side_tr_preds["rv5"]["test"], "rv21": grid_side_tr_preds["rv21"]["test"], "dsv5": grid_side_tr_preds["dsv5"]["test"]}
 
@@ -5006,8 +5006,8 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
         ).to_dict("records")
     }
     results["__block_length_sweep__"] = {"rows": block_sweep_rows}
-    results["__appendix_grid_baselines__"] = {"rows": appendix_grid_rows}
-    results["__appendix_grid_side_baselines__"] = {"rows": appendix_grid_side_rows}
+    results["__reference_grid_baselines__"] = {"rows": reference_grid_rows}
+    results["__reference_grid_side_baselines__"] = {"rows": reference_grid_side_rows}
 
     if not include_reconstruction:
         return results
@@ -5269,13 +5269,13 @@ def save_results(results: Dict[str, dict], out_path: str) -> None:
         sweep_path = out_path.replace(".csv", "_block_length_sweep.csv")
         pd.DataFrame(results["__block_length_sweep__"].get("rows", [])).to_csv(sweep_path, index=False)
 
-    if "__appendix_grid_baselines__" in results:
-        grid_path = out_path.replace(".csv", "_appendix_grid_baselines.csv")
-        pd.DataFrame(results["__appendix_grid_baselines__"].get("rows", [])).to_csv(grid_path, index=False)
+    if "__reference_grid_baselines__" in results:
+        grid_path = out_path.replace(".csv", "_reference_grid_baselines.csv")
+        pd.DataFrame(results["__reference_grid_baselines__"].get("rows", [])).to_csv(grid_path, index=False)
 
-    if "__appendix_grid_side_baselines__" in results:
-        grid_side_path = out_path.replace(".csv", "_appendix_grid_side_baselines.csv")
-        pd.DataFrame(results["__appendix_grid_side_baselines__"].get("rows", [])).to_csv(grid_side_path, index=False)
+    if "__reference_grid_side_baselines__" in results:
+        grid_side_path = out_path.replace(".csv", "_reference_grid_side_baselines.csv")
+        pd.DataFrame(results["__reference_grid_side_baselines__"].get("rows", [])).to_csv(grid_side_path, index=False)
 
 
 def load_stage2_heads_or_raise(heads: DownstreamHeads, results_dir: str, device: str) -> str:
@@ -5315,7 +5315,7 @@ def load_stage3_checkpoint_for_eval(surface_model: FullSurfaceModel, heads: Down
     raise FileNotFoundError("No stage-3 checkpoint found for evaluation.")
 
 
-def run_pipeline(steps, skip_preprocess=False, rebuild=False, resume=False, include_grid_appendix=True, include_grid_side_appendix=False):
+def run_pipeline(steps, skip_preprocess=False, rebuild=False, resume=False, include_grid_reference=True, include_grid_side_reference=False):
     make_dirs(DATA_CFG)
 
     if 0 in steps and not skip_preprocess:
@@ -5383,8 +5383,8 @@ def run_pipeline(steps, skip_preprocess=False, rebuild=False, resume=False, incl
             primary_model_name="OurModel",
             use_side_info=True,
             include_reconstruction=True,
-            include_grid_appendix=include_grid_appendix,
-            include_grid_side_appendix=include_grid_side_appendix,
+            include_grid_reference=include_grid_reference,
+            include_grid_side_reference=include_grid_side_reference,
         )
         print_results_table(results)
 
@@ -5436,7 +5436,7 @@ def aggregate_seed_result_csvs(
     Aggregate seed-sensitivity CSVs under root_dir/**/test_results_forecasting.csv.
 
     By default, only neural specifications are aggregated. This prevents the
-    seed appendix from being polluted by deterministic baselines such as VIX,
+    seed export from being polluted by deterministic baselines such as VIX,
     ATM-IV, HAR, or GARCH, which are repeatedly written in each seed folder but
     are not neural seed-sensitivity objects.
     """
@@ -5511,7 +5511,7 @@ def aggregate_seed_result_csvs(
 def run_set_forecast_only_experiments(
     seeds: List[int],
     include_no_side: bool = True,
-    include_grid_appendix: bool = False,
+    include_grid_reference: bool = False,
 ) -> None:
     """
     Run the clean set-encoder-only ablation:
@@ -5555,7 +5555,7 @@ def run_set_forecast_only_experiments(
                 primary_model_name=label,
                 use_side_info=use_side,
                 include_reconstruction=False,
-                include_grid_appendix=include_grid_appendix,
+                include_grid_reference=include_grid_reference,
             )
             print_results_table(results)
             out = os.path.join(data_cfg.results_dir, "eval", "test_results.csv")
@@ -5575,7 +5575,7 @@ def run_multi_seed(
     resume: bool = False,
     run_full: bool = True,
     run_setonly: bool = True,
-    include_grid_appendix: bool = False,
+    include_grid_reference: bool = False,
 ) -> None:
     """
     Multi-seed driver for neural specifications.
@@ -5601,7 +5601,7 @@ def run_multi_seed(
                     skip_preprocess=skip_preprocess,
                     rebuild=rebuild,
                     resume=resume,
-                    include_grid_appendix=include_grid_appendix,
+                    include_grid_reference=include_grid_reference,
                 )
             summary = aggregate_seed_result_csvs(full_root)
             if summary:
@@ -5611,7 +5611,7 @@ def run_multi_seed(
             run_set_forecast_only_experiments(
                 seeds=seeds,
                 include_no_side=True,
-                include_grid_appendix=False,
+                include_grid_reference=False,
             )
     finally:
         TRAIN_CFG.seed = original_seed
@@ -10535,11 +10535,11 @@ def main():
                         help="With --multi-seed, skip full staged model runs.")
     parser.add_argument("--multi-seed-no-setonly", action="store_true",
                         help="With --multi-seed, skip set-forecast-only ablation runs.")
-    parser.add_argument("--no-grid-appendix", action="store_true",
+    parser.add_argument("--no-grid-reference", action="store_true",
                         help="Do not train/export Grid-CNN and Grid-Transformer additional baselines during evaluation.")
     parser.add_argument("--set-only-side-only", action="store_true",
                         help="With --set-forecast-only, run only the side-info version and skip the no-side variant.")
-    parser.add_argument("--paper-diagnostics", action="store_true",
+    parser.add_argument("--diagnostics", action="store_true",
                         help="Run optional diagnostics without changing trained models or main results.")
     parser.add_argument("--diag-csv-parquet", action="store_true",
                         help="Compare CSV/Parquet value equivalence for raw data files.")
@@ -10549,7 +10549,7 @@ def main():
                         help="Summarize midpoint-IV inversion failure rates from raw option files.")
     parser.add_argument("--diag-max-rows-per-year", type=int, default=None,
                         help="Optional row cap per option year for IV inversion diagnostics.")
-    parser.add_argument("--grid-side-appendix", action="store_true",
+    parser.add_argument("--grid-side-reference", action="store_true",
                         help="Train/export side-information-matched Grid-CNN+Side and Grid-Transformer+Side baselines.")
 
     # Hedging/control extension.
@@ -10629,7 +10629,7 @@ def main():
                         help="Maximum learned no-transaction band for NTB-LS baseline.")
     parser.add_argument("--hedgeset-ntb-lambda-band-l1", type=float, default=0.001,
                         help="Small L1 penalty on NTB-LS learned band size.")
-    parser.add_argument("--hedgeset-paper-suite", action="store_true",
+    parser.add_argument("--hedgeset-released-suite", action="store_true",
                         help="Convenience switch: run candidate sweeps main,underlying,liquid and policy variants full,no_band,no_gate.")
     parser.add_argument("--hedgeset-ambiguity-aware", action="store_true",
                         help="Append the ambiguity-aware regime-robust HedgeSet variant to the run.")
@@ -10702,8 +10702,8 @@ def main():
 
     seeds = _parse_seed_list(args.seeds)
 
-    if args.paper_diagnostics:
-        run_paper_diagnostics(
+    if args.diagnostics:
+        run_diagnostics(
             diag_csv_parquet=args.diag_csv_parquet,
             diag_dsv5=args.diag_dsv5,
             diag_iv_failures=args.diag_iv_failures,
@@ -10716,7 +10716,7 @@ def main():
             if not any(x in {"amb", "ambiguous", "amb_full", "robust", "ambiguity"} for x in pv):
                 pv.append("ambiguous")
                 args.hedgeset_policy_variants = ",".join(pv)
-        if args.hedgeset_paper_suite:
+        if args.hedgeset_released_suite:
             # Reported suite should include the liquid candidate-set sweep by default.
             # Preserve an explicitly custom --hedgeset-candidate-sweeps value,
             # but upgrade the parser default "main,underlying" to the full suite.
@@ -10835,13 +10835,13 @@ def main():
             resume=args.resume,
             run_full=not args.multi_seed_no_full,
             run_setonly=not args.multi_seed_no_setonly,
-            include_grid_appendix=not args.no_grid_appendix,
+            include_grid_reference=not args.no_grid_reference,
         )
     elif args.set_forecast_only:
         run_set_forecast_only_experiments(
             seeds=seeds,
             include_no_side=not args.set_only_side_only,
-            include_grid_appendix=not args.no_grid_appendix,
+            include_grid_reference=not args.no_grid_reference,
         )
     else:
         run_pipeline(
@@ -10849,8 +10849,8 @@ def main():
             skip_preprocess=args.skip_preprocess,
             rebuild=args.rebuild,
             resume=args.resume,
-            include_grid_appendix=not args.no_grid_appendix,
-            include_grid_side_appendix=args.grid_side_appendix,
+            include_grid_reference=not args.no_grid_reference,
+            include_grid_side_reference=args.grid_side_reference,
         )
 
 

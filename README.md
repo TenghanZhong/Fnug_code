@@ -31,8 +31,7 @@ the released E1008 result set.
   summary for the released E1008 artifact.
 - `results/analysis/e1008_primary_moving_block_bootstrap.csv`: paired
   moving-block bootstrap summary for the primary CVaR95 comparisons.
-- `results/paper_figures/`: CSV, PDF, and PNG outputs for the manuscript
-  figures.
+- `results/figures/`: CSV, PDF, and PNG outputs for the released figures.
 - `scripts/rebuild_e1008_final_analysis.py` and
   `scripts/rebuild_e1008_ablation.py`: rebuild the released analysis tables
   from source run outputs when those outputs are available.
@@ -46,7 +45,7 @@ The figures can be regenerated from the released derived results:
 
 ```bash
 pip install -r requirements.txt
-python src/plot_fnug.py --input results --outdir results/paper_figures_rebuilt
+python src/plot_fnug.py --input results --outdir results/figures_rebuilt
 ```
 
 Expected outputs:

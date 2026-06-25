@@ -318,7 +318,7 @@ def make_figure5(results_dir: Path, outdir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True, help="Repository root or results directory containing analysis/e1008_*.csv")
-    parser.add_argument("--outdir", default="results/paper_figures", help="Output directory")
+    parser.add_argument("--outdir", default="results/figures", help="Output directory")
     args = parser.parse_args()
 
     results_dir = resolve_results_dir(args.input)
