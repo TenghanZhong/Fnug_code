@@ -23,3 +23,6 @@ checkpoints/
 # Optional regenerated figures
 results/figures_rebuilt/
 
+# Local regenerated analysis outputs
+results/hedgeset/
+

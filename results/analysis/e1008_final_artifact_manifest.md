@@ -1,4 +1,4 @@
-# E1008 final analysis manifest
+# Released analysis manifest
 
 - final_run: `budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8`
 - final_selection: `best_feasible_excess_0p008`

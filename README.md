@@ -5,30 +5,30 @@ This repository contains the public code and derived outputs for
 
 The released main specification is the budgeted FNUG policy selected under a
 validation excess-CVaR95 budget of 0.008. It uses a latent quote-set state, a
-hard LSDeltaVega anchor, residual scale 0.10, trust gate initialization -1.0,
-trust penalty 0.003, and factor-neutral residual projection.
+always-active LSDeltaVega anchor, residual scale 0.10, trust gate
+initialization -1.0, trust penalty 0.003, and factor-neutral residual
+projection.
 
 Raw SPX option quote data and model checkpoints are not redistributed. The
 repository keeps derived analysis tables and figure files needed to reproduce
-the released E1008 result set.
+the reported result set.
 
 ## Contents
 
 - `src/fnug.py`: training, evaluation, baseline, and selector code.
-- `src/plot_fnug.py`: regenerates the released figures from E1008
-  analysis files.
+- `src/plot_fnug.py`: regenerates the released figures from the analysis files.
 - `configs/fnug_main.json`: released budgeted FNUG configuration.
 - `configs/ablation_no_factorneutral.json`,
   `configs/ablation_no_trustgate.json`, and
   `configs/ablation_no_auxrisk.json`: E1008 ablation configurations.
 - `configs/modern_baselines.json`, `configs/qiao_residual_ls.json`, and
   `configs/hard_ls_only.json`: comparator configurations.
-- `results/analysis/e1008_final_*.csv`: final E1008 combined metrics,
+- `results/analysis/e1008_final_*.csv`: final combined metrics,
   episode panel, heatmap values, reductions, and paired-bootstrap summaries.
 - `results/analysis/e1008_ablation_*.csv`: ATM-call, 2 bps, three-seed
   ablation summaries and bootstrap outputs.
 - `results/analysis/e1008_ivgrid_matched_cell_summary.csv`: matched IVGrid
-  summary for the released E1008 artifact.
+  summary for the released artifact.
 - `results/analysis/e1008_primary_moving_block_bootstrap.csv`: paired
   moving-block bootstrap summary for the primary CVaR95 comparisons.
 - `results/figures/`: CSV, PDF, and PNG outputs for the released figures.

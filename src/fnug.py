@@ -1583,10 +1583,8 @@ class SurfaceLoss(nn.Module):
         self.register_buffer("tau_grid", torch.from_numpy(tau_nodes))
         self.noarb_ref_days = int(data_cfg.noarb_ref_days)
 
-        # --- lazy no-arb computation (train-only) ---
-        # Val and deterministic passes always recompute. Training steps recompute
-        # every `noarb_every` steps and reuse the previous detached value in between,
-        # yielding ~25% wall-clock reduction per epoch.
+        # Lazy no-arb computation for training; validation and deterministic
+        # passes recompute every time.
         self.noarb_every = 4
         self._arb_step = 0
         self._last_arb: Optional[torch.Tensor] = None
@@ -1632,14 +1630,9 @@ class SurfaceLoss(nn.Module):
             w_hat, F_q, K_q, D_q, tau_q, k_q, bid_px, ask_px, mask, cp_flag,
             lambda_cover=self.cfg.lambda_ba_cover
         )
-        # No-arb penalty is expensive (O(B) Python loop with np.quantile and
-        # log-linear curve interpolation). In deterministic/val mode we always
-        # compute it. In training mode we recompute every `noarb_every` steps
-        # and reuse the previous detached value in between. Reusing a detached
-        # tensor means no gradient flows through L_arb on skipped steps, but
-        # the model still receives a fresh finance-consistency signal every
-        # `noarb_every` steps, which is enough to keep calendar/butterfly
-        # violations at near-zero rates in practice.
+        # No-arb penalty is expensive, so training refreshes it every
+        # `noarb_every` steps while validation and deterministic passes compute
+        # it every time.
         need_arb = deterministic or (self._last_arb is None) or (self._arb_step % self.noarb_every == 0)
         if need_arb:
             L_arb = noarb_penalty(
@@ -5926,9 +5919,8 @@ def build_hedging_state_cache(
     model = load_surface_model_for_hedging(data_cfg, model_cfg, preference=checkpoint_preference, device=device)
 
     # Optional no-surface/set-only latent state ablation.  If the clean
-    # SetForecastOnly ablation checkpoint exists, we add setonly_z_* columns to
-    # the same state cache.  HedgeSet state mode "setonly" or "nosurface"
-    # will then build policy states from this representation.
+    # SetForecastOnly checkpoint exists, setonly_z_* columns are added to the
+    # same state cache for HedgeSet state modes "setonly" and "nosurface".
     setonly_model = None
     explicit_setonly = str(getattr(hedge_cfg, "setonly_checkpoint_path", "") or os.environ.get("HEDGESET_SETONLY_CKPT", "") or "").strip()
     candidate_setonly_paths = []
@@ -7033,7 +7025,7 @@ class HedgeSetConfig:
     ntb_ls_use_smooth_gate: bool = True
 
     # Qiao-style plain anchored residual baseline.
-    # This protocol adaptation keeps the hard LSDeltaVega anchor but removes
+    # This protocol adaptation keeps the always-active LSDeltaVega anchor but removes
     # FNUG's factor-neutral projection, trust gate, excess-CVaR objective, and
     # auxiliary risk losses.  It trains by local squared hedging error.
     qiao_residual_state_mode: str = "latent"
@@ -7593,15 +7585,10 @@ def _stable_hedgeset_rules_tag(cfg: HedgeSetConfig) -> str:
         "min_path_bid": float(cfg.min_path_bid),
         "path_k_min": float(cfg.path_k_min),
         "path_k_max": float(cfg.path_k_max),
-        # Include the regime assignment design in the cache key.  Earlier
-        # HedgeSet caches did not contain train-calibrated regime labels; using
-        # the same filename would silently reuse regime_id=-1 episodes and make
-        # the ambiguity-aware objective ineffective.
+        # Include regime and liability-state versions to avoid stale episode
+        # caches after feature-schema changes.
         "regime_assignment_version": "train_quantile_score_v1",
         "regime_bins": int(getattr(cfg, "regime_bins", 3)),
-        # Liability state now includes delta, vega and normalized liability MTM.
-        # This must be part of the cache key; otherwise old episode caches with
-        # the shorter liability vector would be silently reused.
         "liability_state_version": "delta_vega_lratio_v2",
     }
     txt = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -7990,8 +7977,7 @@ class HedgeSetCrossAttentionPolicy(nn.Module):
                 "aux_pred": aux_pred,
             }
 
-        # Absolute target ablation.  This preserves the previous from-scratch
-        # behavior and is intentionally not protected by the LS fallback.
+        # Absolute target ablation without the LS fallback.
         raw_target = self.q_max * torch.tanh(raw[..., 0])
         mu = raw_target
         band = self.band_max * torch.sigmoid(raw[..., 1])
@@ -9993,9 +9979,7 @@ def evaluate_static_hedgeset_baselines(episodes_path: str, family: str, state_mo
     ]
     cfg.current_policy_variant = "static"
     cfg.current_seed = np.nan
-    # Static baselines should always use the candidate set defined by the
-    # current sweep.  Do not inherit a neural policy action-scope ablation
-    # such as underlying-only from a previous run.
+    # Static baselines use the candidate set for the current sweep.
     cfg.current_action_scope = "full"
     for label, mode in static_specs:
         m, p = evaluate_hedgeset_agent(None, test_ld, cfg, cost_bps, label, family, "static", mode=mode)
