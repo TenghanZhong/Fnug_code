@@ -68,7 +68,7 @@ class DataConfig:
     train_end: int = 2021
     val_end: int = 2022
 
-    # These are now used directly in the no-arbitrage grid construction.
+    # Used in no-arbitrage grid construction.
     moneyness_nodes: List[float] = field(default_factory=lambda: [0.80, 0.85, 0.90, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20])
     maturity_nodes_days: List[int] = field(default_factory=lambda: [7, 14, 21, 30, 45, 60, 90, 120, 180, 270])
     noarb_ref_days: int = 30
@@ -917,9 +917,7 @@ def _process_year(year: int, aux: Dict, cfg: DataConfig) -> Dict[str, dict]:
 
         grp["w_target_label"] = grp["tau"] * grp["mid_iv_target"]**2
 
-        # Canonicalize the in-pipeline surface definition completely:
-        # from this point onward, summary stats, vega/liquidity weights,
-        # and reconstruction targets all use the same mid-IV surface.
+        # Use midpoint IV for stats, liquidity weights, and targets.
         grp["iv"] = grp["mid_iv_target"]
         grp["w"] = grp["w_target_label"]
 
@@ -1548,7 +1546,7 @@ def noarb_penalty(model: FullSurfaceModel, z: torch.Tensor,
     w_hat = model.decode(z, k_query.reshape(B, -1), tau_query.reshape(B, -1)).reshape(B, n_K, n_T)
     C = bs_price_from_w(F_exp, K_grid, w_hat, D_exp, is_call=True)
 
-    # Calendar monotonicity: fixed strike, later maturity call price should not be lower.
+    # Calendar monotonicity at fixed strike.
     cal_viol = torch.relu(C[:, :, :-1] - C[:, :, 1:])
     L_cal = (cal_viol ** 2).mean()
 
@@ -1583,8 +1581,7 @@ class SurfaceLoss(nn.Module):
         self.register_buffer("tau_grid", torch.from_numpy(tau_nodes))
         self.noarb_ref_days = int(data_cfg.noarb_ref_days)
 
-        # Lazy no-arb computation for training; validation and deterministic
-        # passes recompute every time.
+            # Cache no-arb terms during training; recompute for validation.
         self.noarb_every = 4
         self._arb_step = 0
         self._last_arb: Optional[torch.Tensor] = None
@@ -1630,9 +1627,7 @@ class SurfaceLoss(nn.Module):
             w_hat, F_q, K_q, D_q, tau_q, k_q, bid_px, ask_px, mask, cp_flag,
             lambda_cover=self.cfg.lambda_ba_cover
         )
-        # No-arb penalty is expensive, so training refreshes it every
-        # `noarb_every` steps while validation and deterministic passes compute
-        # it every time.
+                    # Refresh expensive no-arb terms every `noarb_every` steps.
         need_arb = deterministic or (self._last_arb is None) or (self._arb_step % self.noarb_every == 0)
         if need_arb:
             L_arb = noarb_penalty(
@@ -1730,17 +1725,13 @@ class DownstreamHeads(nn.Module):
         B = z.shape[0]
         if side is None:
             side = torch.full((B, 2), 20.0, device=z.device, dtype=z.dtype)
-        # Fill NaN / inf with training-set mean (~20) rather than 0.
-        # Zero would misrepresent "missing" as "ultra-low volatility",
-        # landing the regime gate in a region the head has never seen.
+        # Fill missing VIX/VXV with the training mean.
         side = torch.where(
             torch.isnan(side) | torch.isinf(side),
             torch.full_like(side, 20.0),
             side,
         )
-        # Center + rescale VIX/VXV to O(1) so that the interaction term
-        # z * vix has the same magnitude as z itself, instead of being
-        # dominated by the raw VIX level (typically 15-80).
+        # Scale VIX/VXV to O(1) before interactions with z.
         vix = (side[:, 0:1] - 20.0) / 15.0
         vxv = (side[:, 1:2] - 20.0) / 15.0
         return torch.cat([z, vix, vxv, z * vix, z * vxv], dim=1)
@@ -1801,7 +1792,7 @@ def train_epoch(model: FullSurfaceModel, loss_fn: SurfaceLoss, loader: DataLoade
         except torch.cuda.OutOfMemoryError:
             n_oom += 1
             optimizer.zero_grad()
-            # Free any partially-computed tensors from the failed forward/backward.
+                # Drop partial tensors after a failed pass.
             for _name in ("total", "info"):
                 if _name in locals():
                     del locals()[_name]
@@ -2146,8 +2137,7 @@ def evaluate_surface_checkpoint(checkpoint_name: str, cache_path: str,
             raise ValueError(f"Unknown checkpoint format in {checkpoint_name}. Keys: {list(ck.keys())}")
 
     test_ds = OptionDataset(cache_path, split="test", cfg=data_cfg)
-    # Test set (2023+) contains days with N ~ 2000 quotes; attention is O(N^2),
-    # so keep eval batch size small even under torch.no_grad().
+    # Keep eval batches small for large quote sets.
     test_ld = DataLoader(test_ds, batch_size=4, shuffle=False, collate_fn=collate_fn, num_workers=0)
     metrics = evaluate_reconstruction(surface_model, test_ld, device_t, cfg_data=data_cfg)
 
@@ -2206,9 +2196,7 @@ class LatentDataset(Dataset):
     def __init__(self, df: pd.DataFrame, d_latent: int):
         z_cols = [f"z_{j}" for j in range(d_latent)]
         self.Z = torch.tensor(df[z_cols].values, dtype=torch.float32)
-        # Preserve NaN here; DownstreamHeads._make_input fills it with the
-        # training-set VIX mean (~20). Filling with 0 would conflate
-        # "missing" with "VIX == 0".
+        # Preserve NaN; downstream heads fill missing VIX/VXV.
         side_df = df[["VIX", "VXV"]].replace([np.inf, -np.inf], np.nan)
         self.side = torch.tensor(side_df.values, dtype=torch.float32)
         self.rv5 = torch.tensor(df["rv5"].values, dtype=torch.float32)
@@ -2367,8 +2355,7 @@ def train_stage3(surface_model: FullSurfaceModel, heads: DownstreamHeads, cache_
         tr_surface = tr_forecast = tr_joint = 0.0
 
         def _prep_side(batch):
-            # Consistent with DownstreamHeads._make_input: fill missing with 20,
-            # not 0, so that the regime gate is never driven to an unseen region.
+        # Match downstream VIX/VXV missing-value handling.
             side = torch.stack([batch["VIX"], batch["VXV"]], dim=1).to(device)
             return torch.where(
                 torch.isnan(side) | torch.isinf(side),
@@ -2408,17 +2395,12 @@ def train_stage3(surface_model: FullSurfaceModel, heads: DownstreamHeads, cache_
 
         with torch.no_grad():
             for batch in val_loader:
-                # Surface loss is well-defined on every batch, regardless of
-                # whether the forward RV targets are available.
+        # Surface loss is available on every batch.
                 L_s, _ = loss_surf(surface_model, batch, device, deterministic=True, update_scaler=False)
                 va_surface += L_s.item()
                 n_val_surface += 1
 
-                # Forecast loss is only meaningful on batches that contain any
-                # valid forward target. Tail val batches near year-end can have
-                # valid.sum() == 0 (RV21 needs 21 future trading days). Without
-                # this guard, downstream_loss returns 0, which would incorrectly
-                # pull va_forecast toward zero and corrupt model selection.
+        # Skip forecast loss when no forward target is available.
                 if bool(batch["valid"].any()):
                     feat = batch["features"].to(device)
                     mask = batch["mask"].to(device)
@@ -2915,19 +2897,11 @@ class HARSummaryModel:
 
 
 # ============================================================
-# Additional evaluation-only baselines
+# Evaluation baselines
 # ============================================================
 
 def _choose_boosting_backend(require_xgboost: Optional[bool] = None) -> tuple[str, object]:
-    """
-    Select the nonlinear summary learner used in the reported tables.
-
-    Released runs should not silently replace XGBoost-Summary with a different
-    backend, because that changes the baseline identity in the result table. By
-    default we require xgboost. For optional exploratory use, set
-    FNUG_REQUIRE_XGBOOST=0 to allow LightGBM/HGBR fallbacks with explicitly
-    different labels.
-    """
+    """Select the nonlinear summary baseline backend."""
     if require_xgboost is None:
         require_xgboost = os.environ.get("FNUG_REQUIRE_XGBOOST", "1") != "0"
 
@@ -2937,8 +2911,8 @@ def _choose_boosting_backend(require_xgboost: Optional[bool] = None) -> tuple[st
     except Exception as e:
         if require_xgboost:
             raise ImportError(
-                "Rebuilding the reported tables requires xgboost so that the "
-                "baseline label XGBoost-Summary matches the released outputs. "
+                "Rebuilding summary tables requires xgboost so that the "
+                "baseline label XGBoost-Summary matches the output files. "
                 "Install xgboost or set FNUG_REQUIRE_XGBOOST=0 for exploratory "
                 "fallback runs."
             ) from e
@@ -3437,7 +3411,7 @@ def _make_side_augmented_features(h: torch.Tensor, side: torch.Tensor) -> torch.
 
 
 class SmallGridCNNSideRegressor(nn.Module):
-    """Grid-CNN baseline with the same VIX/VXV side-channel style as OurModel."""
+    """Grid-CNN baseline with VIX/VXV side channels."""
     def __init__(self, in_channels: int = 2):
         super().__init__()
         self.features = nn.Sequential(
@@ -3632,8 +3606,7 @@ def fit_grid_side_baselines(train_df: pd.DataFrame, val_df: pd.DataFrame, test_d
     return out
 
 def fit_garch_oos(train_returns: np.ndarray, test_returns: np.ndarray, horizon: int = 1, model: str = "GARCH") -> np.ndarray:
-    # Retained for backward compatibility, but full evaluation now uses
-    # garch_forecast_on_anchor_dates() with full daily price history.
+    # Compatibility path; full evaluation uses full daily price history.
     try:
         from arch import arch_model
     except ImportError:
@@ -3830,8 +3803,7 @@ def regression_metrics(
     }
 
     if task == "dsv5":
-        # DSV5 has structural zero windows. Main tables should use RMSE/MAE.
-        # Floored and positive-subset QLIKE are kept as robustness diagnostics.
+        # QLIKE variants for structural-zero DSV5 windows.
         out["qlike"] = np.nan
         out["qlike_positive_subset"] = qlike_loss(yt, yp, eps=eps, mode="positive_subset")
         out["qlike_floored"] = (
@@ -4162,15 +4134,7 @@ def audit_iv_inversion_failures(
     out_path: Optional[str] = None,
     max_rows_per_year: Optional[int] = None,
 ) -> pd.DataFrame:
-    """
-    Optional scan of midpoint-IV inversion edge cases.
-
-    The function does not change preprocessing or cached quote sets. It reports
-    midpoint-at/below-intrinsic and direct midpoint-IV inversion failures both
-    after the k-filter stage and after the retained quote filters used by the
-    production preprocessing path (mid-IV target, relative spread, settlement,
-    and OTM/ATM representative selection).
-    """
+    """Scan midpoint-IV inversion edge cases."""
     if out_path is None:
         out_path = os.path.join(cfg.results_dir, "diagnostics", "iv_inversion_diagnostics.csv")
 
@@ -4352,7 +4316,7 @@ def run_diagnostics(
     diag_iv_failures: bool = False,
     max_rows_per_year: Optional[int] = None,
 ) -> None:
-    """Run optional diagnostics without changing trained models or main results."""
+    """Run diagnostics without changing trained models or outputs."""
     diag_dir = os.path.join(DATA_CFG.results_dir, "diagnostics")
     os.makedirs(diag_dir, exist_ok=True)
 
@@ -4538,8 +4502,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     y_dsv5 = test_df["dsv5"].values.astype(float)
     y_stress = test_df["stress21"].values.astype(float)
 
-    # DSV5 can be exactly zero when no negative return occurs over the forward
-    # five-day window. Use a training-only positive floor for robustness QLIKE.
+    # Training-only positive floor for DSV5 QLIKE.
     dsv5_floor = positive_floor_from_train(train_df["dsv5"].values, q=0.05, eps=1e-8)
     logger.info(f"DSV5 robustness floor = {dsv5_floor:.8g} "
                 f"(5th percentile of positive train DSV5)")
@@ -4661,11 +4624,11 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     )
 
     # -----------------------------
-    # New evaluation-only baselines
+    # Evaluation baselines
     # -----------------------------
     boosted_label, boosted_preds = fit_boosted_summary_baselines(train_df, val_df, test_df, seed=cfg_train.seed)
 
-    # Fixed-grid neural baselines are exported to a separate reference CSV.
+    # Fixed-grid baselines are exported separately.
     grid_label = "Grid-CNN"
     grid_tr_label = "Grid-Transformer"
     grid_preds = None
@@ -4674,7 +4637,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
         grid_preds = fit_grid_cnn_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed)
         grid_tr_preds = fit_grid_transformer_baselines(train_df, val_df, test_df, cache_path, cfg_data, device=device, seed=cfg_train.seed)
 
-    # Optional side-information-matched fixed-grid baselines.
+    # Side-information-matched fixed-grid baselines.
     grid_side_label = "Grid-CNN+Side"
     grid_side_tr_label = "Grid-Transformer+Side"
     grid_side_preds = None
@@ -4815,7 +4778,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
     add_model(boosted_label, y_rv5, y_rv21, y_dsv5, y_stress,
               boosted_preds["rv5"]["test"], boosted_preds["rv21"]["test"], boosted_preds["dsv5"]["test"],
               test_scores[boosted_label], cls_thresholds[boosted_label])
-    # Grid-CNN / Grid-Transformer are exported as reference baselines.
+    # Export fixed-grid reference baselines.
     add_model("GARCH", y_rv5, y_rv21, y_dsv5, y_stress,
               garch_pred_rv5, garch_pred_rv21, garch_pred_dsv5, test_scores["GARCH"], cls_thresholds["GARCH"])
 
@@ -4956,7 +4919,7 @@ def full_evaluation(surface_model, heads: DownstreamHeads, cache_path: str,
         dsv5_pred_map[grid_side_label] = grid_side_preds["dsv5"]["test"]
         dsv5_pred_map[grid_side_tr_label] = grid_side_tr_preds["dsv5"]["test"]
 
-    # Diagnostic prediction panel and DSV5 floor-sensitivity table.
+    # Prediction panel and DSV5 floor-sensitivity table.
     diag_pred_map = {
         primary_model_name: {"rv5": preds_test["rv5"], "rv21": preds_test["rv21"], "dsv5": preds_test["dsv5"]},
         "VIX-alone": {"rv5": scalar_preds["VIX-alone"]["rv5"]["test"], "rv21": scalar_preds["VIX-alone"]["rv21"]["test"], "dsv5": scalar_preds["VIX-alone"]["dsv5"]["test"]},
@@ -5253,7 +5216,7 @@ def save_results(results: Dict[str, dict], out_path: str) -> None:
         ])
         df_dm.to_csv(dm_path, index=False)
 
-    # Diagnostics and robustness tables.
+    # Diagnostic tables.
     if "__dsv5_zero_diagnostics__" in results:
         diag_path = out_path.replace(".csv", "_dsv5_zero_diagnostics.csv")
         pd.DataFrame(results["__dsv5_zero_diagnostics__"].get("rows", [])).to_csv(diag_path, index=False)
@@ -5506,11 +5469,7 @@ def run_set_forecast_only_experiments(
     include_no_side: bool = True,
     include_grid_reference: bool = False,
 ) -> None:
-    """
-    Run the clean set-encoder-only ablation:
-      1) SetForecastOnly: quote-set encoder + heads, VIX/VXV side info retained.
-      2) SetForecastOnly_NoSide: same, but no VIX/VXV side info.
-    """
+    """Run set-encoder-only ablations."""
     base_results_dir = os.path.join("results", "set_forecast_only")
     cache_path_default = os.path.join(DATA_CFG.cache_dir, "daily_quotes.pkl")
     if not os.path.exists(cache_path_default):
@@ -5570,14 +5529,7 @@ def run_multi_seed(
     run_setonly: bool = True,
     include_grid_reference: bool = False,
 ) -> None:
-    """
-    Multi-seed driver for neural specifications.
-
-    Full model uses the existing staged pipeline in separate results folders:
-        results/seeds/full/seed_<s>/
-    Set-only ablations use:
-        results/set_forecast_only/seed_<s>/...
-    """
+    """Multi-seed driver for neural specifications."""
     original_seed = TRAIN_CFG.seed
     original_results_dir = DATA_CFG.results_dir
 
@@ -5614,21 +5566,9 @@ def run_multi_seed(
 
 
 # =============================================================================
-# Option-Implied Belief-State Deep Hedging Extension
+# Option-state hedging module
 # =============================================================================
-# HedgeSet extension using the trained option-state encoder. The existing stages
-# learn the surface-regularized latent option state. The extension below treats
-# the trained latent state as a frozen option-implied belief state and tests
-# whether it is useful as the Markov input for risk-sensitive hedging under
-# transaction costs.
-#
-# Evaluation protocol:
-#   * tradable PnL is marked from observed option quotes, not decoder prices;
-#   * liability episodes are built from exact contract keys, not gridded marks;
-#   * episode paths must remain fully inside train/validation/test splits;
-#   * the policy uses a differentiable no-trade band to avoid overtrading;
-#   * model selection uses validation CVaR, not test performance;
-#   * delta and no-hedge baselines are evaluated under the identical cost model.
+# Frozen option-state features with quote-marked PnL and chronological splits.
 # =============================================================================
 
 
@@ -5642,23 +5582,17 @@ class HedgingConfig:
     target_tau_days: int = 30
     tau_tol_days: int = 10
 
-    # Liability selection filters.  These are stricter than the forecasting
-    # filters because pathwise PnL is much more sensitive to stale/wide quotes.
+    # Liquidity filters for pathwise PnL.
     min_liability_bid: float = 0.10
     max_liability_rel_spread: float = 0.30
     max_path_rel_spread: float = 0.50
     min_path_bid: float = 0.05
 
-    # For pathwise mark-to-market, use a wider moneyness filter than the
-    # representation model.  Otherwise crash/stress episodes can be dropped
-    # after the selected liability moves outside the forecasting surface range.
+    # Wider path filter keeps selected contracts observable.
     path_k_min: float = -0.60
     path_k_max: float = 0.60
 
-    # If True, each finite-horizon episode pays the transaction cost required
-    # to close the remaining underlying hedge at the terminal date.  This makes
-    # closed-episode tail losses comparable across policies and prevents large
-    # terminal hedge positions from receiving a hidden cost advantage.
+    # Charge terminal liquidation cost.
     terminal_liquidation: bool = True
 
     # Liability families supported by the episode builder.
@@ -5689,8 +5623,7 @@ class HedgingConfig:
     patience: int = 35
     min_delta: float = 1e-5
 
-    # State modes.  latent is the proposed belief state; summary and grid are
-    # baselines using the same no-trade-band policy architecture.
+    # State modes for latent, summary, and grid policies.
     state_modes: List[str] = field(default_factory=lambda: ["latent", "summary", "grid"])
 
 
@@ -5803,9 +5736,7 @@ def preprocess_hedging_chains(
             g["F"] = F_arr
             g["D_r"] = Dr_arr
             g["k"] = np.log(g["K"].values / np.maximum(F_arr, 1e-8))
-            # Hedging mark-to-market must keep the selected contract observable
-            # even after underlying moves.  Use the wider hedging path filter,
-            # not the narrower forecasting-surface filter.
+        # Keep selected contracts observable along the path.
             g = g[(g["k"] >= hedge_cfg.path_k_min) & (g["k"] <= hedge_cfg.path_k_max)]
             if len(g) == 0:
                 continue
@@ -5813,10 +5744,7 @@ def preprocess_hedging_chains(
             g = g[g["iv"].notna() & (g["iv"] > 0.02) & (g["iv"] < 5.0)]
             if len(g) == 0:
                 continue
-            # Use midpoint-implied volatility for hedging Greeks whenever it is
-            # numerically invertible.  This keeps the SmiledDelta baseline and
-            # liability state features aligned with the observed mid marks used
-            # in pathwise PnL.
+        # Use midpoint IV for hedging Greeks and liability features.
             g["mid_iv_target"] = _compute_mid_iv_target(g)
             g = g[np.isfinite(g["mid_iv_target"]) & (g["mid_iv_target"] > 0.02) & (g["mid_iv_target"] < 5.0)]
             if len(g) == 0:
@@ -5918,9 +5846,7 @@ def build_hedging_state_cache(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_surface_model_for_hedging(data_cfg, model_cfg, preference=checkpoint_preference, device=device)
 
-    # Optional no-surface/set-only latent state ablation.  If the clean
-    # SetForecastOnly checkpoint exists, setonly_z_* columns are added to the
-    # same state cache for HedgeSet state modes "setonly" and "nosurface".
+    # Set-only latent state columns for HedgeSet ablations.
     setonly_model = None
     explicit_setonly = str(getattr(hedge_cfg, "setonly_checkpoint_path", "") or os.environ.get("HEDGESET_SETONLY_CKPT", "") or "").strip()
     candidate_setonly_paths = []
@@ -6090,7 +6016,7 @@ def _select_straddle_liability(start_df: pd.DataFrame, cfg: HedgingConfig) -> Op
     )
     if len(m) == 0:
         return None
-    # k_C and k_P should be identical for the same strike/date; use average for robustness.
+    # Average same-strike call/put log-moneyness.
     m["k_avg"] = 0.5 * (m["k_C"] + m["k_P"])
     m["tau_avg"] = 0.5 * (m["tau_C"] + m["tau_P"])
     m["rel_avg"] = 0.5 * (m["rel_spread_C"] + m["rel_spread_P"])
@@ -6901,20 +6827,9 @@ def run_hedging_pipeline(
 
 
 # =============================================================================
-# QuoteSet-to-HedgeSet Deep Hedging Extension
+# Quote-set to hedge-set policy
 # =============================================================================
-# HedgeSet block with a variable-size tradable hedge universe. Each episode
-# observes a surface-regularized market belief state together with a candidate
-# set of liquid hedge instruments selected from the option chain. The policy is
-# permutation-equivariant over candidate instruments and outputs state-dependent
-# no-trade bands for each instrument.
-#
-# Evaluation protocol:
-#   * liability and option hedge-instrument marks are observed quote mids;
-#   * option transaction costs use half-spread plus a proportional bps component;
-#   * the same liability contract cannot be selected as its own hedge instrument;
-#   * all episode paths stay within one calendar split;
-#   * policies are selected by validation CVaR and evaluated once on test data.
+# Variable-size hedge-instrument policy with quote-marked PnL.
 # =============================================================================
 
 
@@ -6954,7 +6869,7 @@ class HedgeSetConfig:
     use_no_trade_band: bool = True
     use_sparse_gate: bool = True
 
-    # Liability/path filters match the checked underlying-only version.
+    # Liability and path filters.
     min_liability_bid: float = 0.10
     max_liability_rel_spread: float = 0.30
     max_path_rel_spread: float = 0.50
@@ -6975,13 +6890,10 @@ class HedgeSetConfig:
     lambda_pos: float = 0.001
     lambda_sparse: float = 0.002
 
-    # Residual classical-hedge prior. The policy learns a bounded residual around
-    # a classical anchor. Supported anchors are:
+    # Residual classical-hedge prior. Supported anchors are:
     #   none, delta, delta_nt, greedy_deltavega, ls_deltavega.
     residual_base: str = "ls_deltavega"
-    # Hard residual control uses q_policy = q_base + residual.  residual_scale
-    # is an absolute position cap for the learned correction, not multiplied by
-    # q_max.
+    # residual_scale is an absolute position cap.
     residual_scale: float = 0.15
     imitation_epochs: int = 10
     imitation_lambda: float = 1.0
@@ -7000,22 +6912,16 @@ class HedgeSetConfig:
     factor_neutral_ridge: float = 1e-4
     lambda_factor_neutral: float = 0.10
 
-    # Global uncertainty/trust gate.  A scalar trust gate multiplies the entire
-    # residual overlay. The gate is initialized below one.
+    # Scalar trust gate for the residual overlay.
     use_global_trust_gate: bool = True
     trust_gate_init_bias: float = -2.0
     trust_gate_temp: float = 1.0
     lambda_trust_l1: float = 0.01
 
-    # Auxiliary dense supervision.  The policy predicts short-horizon base-loss
-    # and transition proxies from the current belief/candidate-set state.  This
-    # supplies dense gradients before the CVaR tail objective dominates.
+    # Auxiliary short-horizon risk targets.
     lambda_aux_risk: float = 0.05
 
-    # Modern baseline suite.  These baselines use the same episodes, candidate
-    # instruments, cost accounting, validation selection, and paired bootstrap as
-    # the FNUG model.  They are off by default and enabled with
-    # --hedgeset-modern-baselines ivgrid,ntb_ls,cvar_from_scratch,qiao_residual_ls or all.
+    # Modern baseline suite.
     modern_baselines: List[str] = field(default_factory=list)
     ivgrid_baseline_state_mode: str = "grid"
     cvar_from_scratch_state_mode: str = "latent"
@@ -7024,10 +6930,7 @@ class HedgeSetConfig:
     ntb_ls_lambda_band_l1: float = 0.001
     ntb_ls_use_smooth_gate: bool = True
 
-    # Qiao-style plain anchored residual baseline.
-    # This protocol adaptation keeps the always-active LSDeltaVega anchor but removes
-    # FNUG's factor-neutral projection, trust gate, excess-CVaR objective, and
-    # auxiliary risk losses.  It trains by local squared hedging error.
+    # Plain anchored residual baseline.
     qiao_residual_state_mode: str = "latent"
     qiao_residual_base: str = "ls_deltavega"
     qiao_residual_scale: float = 0.15
@@ -7039,8 +6942,7 @@ class HedgeSetConfig:
     qiao_lambda_tc: float = 0.0
     qiao_lambda_turnover: float = 0.0
 
-    # Validation selection.  CVaR on a small validation split is noisy, so the
-    # best checkpoint is selected by a stable risk score rather than pure CVaR95.
+    # Validation selection score.
     val_score_cvar95_weight: float = 1.0
     val_score_cvar99_weight: float = 0.25
     val_score_mean_weight: float = 0.10
@@ -7059,10 +6961,7 @@ class HedgeSetConfig:
     val_feasible_delta_exposure_max: float = 1e-4
     val_feasible_vega_exposure_max: float = 1e-4
 
-    # Ambiguity-aware regime-robust extension.  This is disabled by default and
-    # activated through the "ambiguous" policy variant or the CLI switch below.
-    # The regime labels are assigned from train-split option-implied regime
-    # scores and then carried into validation/test without refitting.
+    # Regime-aware option.
     ambiguity_aware: bool = False
     lambda_ambiguity: float = 0.25
     ambiguity_eta: float = 8.0
@@ -7224,7 +7123,7 @@ def _hs_select_candidate_specs(start_df: pd.DataFrame, liability_keys: set, cfg:
         else:
             spec = _hs_select_single(start_df, r, liability_keys, cfg)
         if spec is not None:
-            # avoid duplicate leg sets
+        # Avoid duplicate leg sets.
             key = tuple((str(pd.Timestamp(e).date()), int(k), cp, float(q)) for e, k, cp, q in spec["legs"])
             existing = {tuple((str(pd.Timestamp(e).date()), int(k), cp, float(q)) for e, k, cp, q in s.get("legs", [])) for s in specs}
             if key not in existing:
@@ -7394,10 +7293,7 @@ def _hs_build_one_episode(
             summary = _state_row_to_summary_vec(st)
             grid = np.asarray(grid_map[dstr], dtype=np.float32).reshape(-1)
             if idx == 0:
-                # extract_latents stores the day-level quote count as N_quotes.
-                # Older caches or diagnostic panels may store quote_density.
-                # Use either name so the regime score's quote-coverage term is
-                # actually active instead of being silently imputed to the train median.
+    # Support both quote-count column names for regime scoring.
                 qden = st.get("quote_density", st.get("N_quotes", np.nan))
                 regime_raw = {
                     "VIX": _safe_float(st.get("VIX"), np.nan),
@@ -7532,8 +7428,7 @@ def _assign_hedgeset_regimes(episodes: List[dict], cfg: HedgeSetConfig) -> Dict[
     med = np.where(np.isfinite(med), med, 0.0)
     scale = np.where(np.isfinite(scale) & (scale > 1e-6), scale, 1.0)
     Z = (np.where(np.isfinite(X), X, med) - med) / scale
-    # Downweight noisy density and term-structure components relative to direct
-    # volatility/skew/backward-risk evidence.
+    # Emphasize volatility, skew, and realized-risk signals.
     weights = np.asarray([1.0, 0.8, 1.0, 0.7, 0.8, 0.5, 0.8, 0.8, 0.7, 0.35], dtype=float)
     scores = np.nanmean(Z * weights.reshape(1, -1), axis=1)
     train_scores = scores[train_mask] if train_mask.any() else scores
@@ -7585,8 +7480,7 @@ def _stable_hedgeset_rules_tag(cfg: HedgeSetConfig) -> str:
         "min_path_bid": float(cfg.min_path_bid),
         "path_k_min": float(cfg.path_k_min),
         "path_k_max": float(cfg.path_k_max),
-        # Include regime and liability-state versions to avoid stale episode
-        # caches after feature-schema changes.
+    # Include feature versions in the cache key.
         "regime_assignment_version": "train_quantile_score_v1",
         "regime_bins": int(getattr(cfg, "regime_bins", 3)),
         "liability_state_version": "delta_vega_lratio_v2",
@@ -7604,11 +7498,7 @@ def build_hedgeset_episodes(
     force_rebuild: bool = False,
 ) -> str:
     os.makedirs(cfg.cache_dir, exist_ok=True)
-    # Use a stable cache tag. Python's built-in hash() is randomized across
-    # processes, which would silently create different cache filenames for the
-    # same candidate rules. Include the construction filters and state-cache
-    # basename so stale episodes are not reused after changing filters or the
-    # encoder checkpoint preference.
+    # Stable cache tag for candidate rules and filters.
     rules_tag = _stable_hedgeset_rules_tag(cfg)
     state_tag = Path(state_cache_path).stem.replace("hedging_state_cache_", "state_")
     out_path = os.path.join(
@@ -7828,25 +7718,12 @@ def fit_hedgeset_normalizer(ds: HedgeSetEpisodeDataset, device: torch.device) ->
 
 
 class HedgeSetCrossAttentionPolicy(nn.Module):
-    """Cross-attention policy over a variable-size hedge set.
-
-    Default mode is hard residual control around a classical hedge anchor:
-        q_t = q_base_t + r_t.
-
-    The no-trade band and sparse gate act only on the residual state r_t, never
-    on q_base_t.  Therefore r_t == 0 gives exactly the classical hedge path,
-    including the same transaction-cost accounting in the rollout.
-
-    Absolute target mode is retained for ablations by setting residual_base to
-    none/absolute/raw.
-    """
+    """Cross-attention hedge-set policy with residual anchoring."""
     def __init__(self, global_dim: int, inst_dim: int, cfg: HedgeSetConfig):
         super().__init__()
         d = int(cfg.embed_dim)
         self.global_proj = nn.Sequential(nn.Linear(global_dim, d), nn.GELU(), nn.LayerNorm(d))
-        # Instrument token includes current residual or total position plus the
-        # classical base position.  In residual mode the first inventory channel
-        # is r_prev / residual_scale; in absolute mode it is q_prev / q_max.
+        # Instrument token includes inventory and base-position features.
         self.inst_proj = nn.Sequential(nn.Linear(inst_dim + 2, d), nn.GELU(), nn.LayerNorm(d))
         self.q_proj = nn.Linear(d, d, bias=False)
         self.k_proj = nn.Linear(d, d, bias=False)
@@ -7862,10 +7739,7 @@ class HedgeSetCrossAttentionPolicy(nn.Module):
         layers.append(nn.Linear(cur, 3))
         self.out = nn.Sequential(*layers)
 
-        # Global residual trust and auxiliary transition/risk prediction heads.
-        # The trust gate is intentionally global, not per-instrument: it decides
-        # whether the neural overlay should be trusted at all.  If trust -> 0,
-        # q_t reverts to the hard classical base exactly.
+        # Scalar trust gate and auxiliary risk heads.
         self.global_context_norm = nn.LayerNorm(2 * d)
         self.global_trust_gate = nn.Sequential(
             nn.Linear(2 * d, d), nn.GELU(), nn.Linear(d, 1)
@@ -8143,16 +8017,7 @@ def _hs_project_factor_neutral_residual(
     mask_t: torch.Tensor,
     cfg: HedgeSetConfig,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    """Project residual positions toward the delta/vega null space.
-
-    The classical LSDeltaVega base already spans liability delta and vega.  The
-    neural overlay should therefore express liquidity, skew, term-structure, or
-    regime views without rebuilding first-order exposures.  We use the batched
-    projection
-        r_perp = (I - A'(A A' + rho I)^{-1} A) r,
-    with A=[delta; vega/vega_scale].  The operation is differentiable and
-    preserves the exact LS fallback because r_raw==0 implies r_perp==0.
-    """
+    """Project residual positions toward the delta/vega null space."""
     device = r_raw.device
     mask_f = mask_t.to(device=device, dtype=r_raw.dtype)
     r0 = torch.where(mask_t.to(device), r_raw, torch.zeros_like(r_raw))
@@ -8171,9 +8036,7 @@ def _hs_project_factor_neutral_residual(
         lam = torch.linalg.solve(gram, rhs)
         correction = torch.bmm(A.transpose(1, 2), lam).squeeze(-1)
         r = torch.where(mask_t.to(device), r0 - correction, torch.zeros_like(r0))
-        # Preserve factor neutrality while enforcing the conservative residual
-        # scale at the portfolio level.  Scaling the whole residual vector keeps
-        # A r approximately zero, unlike per-coordinate clipping.
+    # Portfolio-level scaling preserves approximate factor neutrality.
         cap = max(float(getattr(cfg, "residual_scale", 0.15)), 1e-8)
         max_abs = torch.amax(torch.abs(r), dim=1, keepdim=True).clamp(min=cap)
         shrink = torch.clamp(cap / max_abs, max=1.0)
@@ -8205,10 +8068,7 @@ def _rollout_hedgeset(agent: Optional[HedgeSetAgent], batch: dict, cfg: HedgeSet
     B, H, M = mask.shape
     device = G.device
 
-    # q_prev is the actual total hedge inventory.  r_prev is the neural residual
-    # inventory.  q_base_prev is the standalone classical base inventory used to
-    # compute base PnL and no-trade base rules without contamination from the
-    # neural residual.  This is what enforces r == 0 => exact base path.
+    # Track total, residual, and standalone base inventories separately.
     q_prev = torch.zeros(B, M, device=device)
     r_prev = torch.zeros(B, M, device=device)
     q_base_prev = torch.zeros(B, M, device=device)
@@ -8262,9 +8122,7 @@ def _rollout_hedgeset(agent: Optional[HedgeSetAgent], batch: dict, cfg: HedgeSet
             if agent is None:
                 raise ValueError("agent is required for policy mode")
             if residual_enabled:
-                # Classical base path is computed from q_base_prev, not q_prev.
-                # For LSDeltaVega this is path-independent; for delta_nt it is
-                # crucial because no-trade decisions must be those of the base.
+        # Compute the classical base path from q_base_prev.
                 q_base = _hs_base_target(batch, t, q_base_prev, cfg)
                 q_new_raw, aux = agent.act(G[:, t, :], IF[:, t, :, :], r_prev, mask_t, q_anchor_t=q_base)
                 r_raw = aux.get("residual_new", q_new_raw - q_base)
@@ -8316,10 +8174,7 @@ def _rollout_hedgeset(agent: Optional[HedgeSetAgent], batch: dict, cfg: HedgeSet
         base_turnover = base_turnover + torch.abs(dq_base).sum(dim=1)
 
         if residual_enabled and len(aux_preds) > len(aux_targets):
-            # Dense auxiliary targets use only realized one-step quantities and
-            # the standalone base hedge.  They are scaled to be O(1) and do not
-            # They are training losses computed inside historical episodes and
-            # are not evaluation inputs.
+        # Auxiliary targets use realized one-step quantities during training.
             base_step_loss_norm = (-base_step_pnl) / scale
             liab_step_loss_norm = dL / scale
             underlier_ret_abs = torch.abs(dP[:, 0] / P[:, t, 0].clamp(min=1e-6)) if P.shape[-1] > 0 else torch.zeros_like(base_step_loss_norm)
@@ -8446,8 +8301,7 @@ def hedgeset_training_loss(agent: HedgeSetAgent, batch: dict, cfg: HedgeSetConfi
 
     phase = str(getattr(cfg, "current_training_phase", "cvar")).lower()
     if phase == "imitation":
-        # Warm-start to residual zero.  Because the base is hard-added in the
-        # rollout, imitation is exactly residual shrinkage toward the LS path.
+            # Warm-start by shrinking the residual toward zero.
         total = (
             float(getattr(cfg, "imitation_lambda", 1.0)) * imit_pen
             + 0.05 * turn_pen
@@ -8596,10 +8450,7 @@ def evaluate_hedgeset_agent(agent: Optional[HedgeSetAgent], loader: DataLoader, 
         resid_factor = out.get("residual_factor_l2", torch.full_like(out["loss_norm"], float("nan"))).detach().cpu().numpy()
         trust_mean = out.get("global_trust_mean", torch.full_like(out["loss_norm"], float("nan"))).detach().cpu().numpy()
         q_np = out["q_hist"].detach().abs().cpu().numpy()
-        # Use the actual mask used by the rollout.  This matters for
-        # action-scope ablations such as underlying-only: PnL was already
-        # computed with the restricted mask, so position diagnostics should use
-        # the same denominator rather than the full original candidate set.
+        # Use the rollout mask for position diagnostics.
         mask_np = out.get("inst_mask_used", batch_t["inst_mask"]).detach().cpu().numpy().astype(bool)
         denom = np.maximum(mask_np.sum(axis=(1, 2)), 1)
         q_abs = (q_np * mask_np).sum(axis=(1, 2)) / denom
@@ -8881,7 +8732,7 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
             torch.save({"agent": best_state, "epoch": epoch + 1, "best_val_score": best_val, "best_val_metrics": val_metrics}, os.path.join(out_dir, "best_policy.pt"))
             torch.save({"agent": best_state, "epoch": epoch + 1, "best_val_score": best_val, "best_val_metrics": val_metrics}, os.path.join(out_dir, "best_score_policy.pt"))
         else:
-            # Do not early-stop during imitation warm-start.
+        # Disable early stopping during imitation warm-start.
             if cfg.current_training_phase != "imitation":
                 bad_epochs += 1
                 if bad_epochs >= cfg.patience:
@@ -8897,8 +8748,7 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
         suffix = ""
     else:
         suffix = "" if pv == "full" else f"-{pv}"
-    # Keep the main model label stable for pairwise bootstrap compatibility.
-    # The selected classical anchor is saved in residual_base / run_config.json.
+        # Keep the main model label stable for pairwise bootstrap outputs.
     scope_suffix = "" if str(action_scope).lower().strip() in {"full", "main", "all"} else f"-{str(action_scope).lower().strip()}"
     model_label = getattr(cfg, "model_label_override", None)
     if not model_label:
@@ -8941,9 +8791,7 @@ def train_hedgeset_policy_one(episodes_path: str, family: str, state_mode: str, 
 # -----------------------------------------------------------------------------
 # Modern HedgeSet baselines
 # -----------------------------------------------------------------------------
-# These baselines use the same HedgeSet evaluation stack, historical
-# quote-marked episodes, transaction costs, candidate instruments, validation
-# selection, and paired bootstrap code.
+# Baselines share the same HedgeSet evaluation stack.
 
 
 def _normalize_modern_baseline_names(names: Optional[List[str] | str]) -> List[str]:
@@ -9388,10 +9236,7 @@ class QiaoResidualLSAgent(nn.Module):
         n_layers = max(1, int(getattr(cfg, "qiao_hidden_layers", getattr(cfg, "hidden_layers", 3))))
         self.global_proj = nn.Sequential(nn.Linear(global_dim, h), nn.GELU(), nn.LayerNorm(h))
 
-        # Per-instrument MLP.  This is a plain residual learner, not a set-attention
-        # controller.  It receives the normalized instrument features, a global
-        # market-state embedding, previous total position, LS base position, and
-        # the base rebalance gap.
+        # Per-instrument MLP baseline.
         in_dim = h + inst_dim + 3
         layers = []
         cur = in_dim
@@ -9424,8 +9269,7 @@ class QiaoResidualLSAgent(nn.Module):
         residual_target = torch.where(mask_t, residual_target, torch.zeros_like(residual_target))
         q_new = torch.clamp(q_base_t + residual_target, -self.q_max, self.q_max)
         q_new = torch.where(mask_t, q_new, torch.zeros_like(q_new))
-        # Diagnostics and residual penalties should reflect the actually applied
-        # residual after position clipping, not the pre-clipping target.
+            # Diagnostics use the post-clipping residual.
         residual_applied = torch.where(mask_t, q_new - q_base_t, torch.zeros_like(q_new))
         return q_new, {"residual": residual_applied, "residual_target": residual_target, "q_base": q_base_t}
 
@@ -9912,9 +9756,7 @@ def run_hedgeset_modern_baselines(
                     cfg_cv.lambda_residual_trade = 0.0
                     cfg_cv.imitation_epochs = 0
                     cfg_cv.finetune_imitation_lambda = 0.0
-                    # This baseline is a pure tail-risk RL/deep-hedging baseline:
-                    # select checkpoints by absolute policy loss, not by excess
-                    # loss versus a hard classical base.
+    # Unanchored CVaR baseline.
                     cfg_cv.val_score_excess_cvar95_weight = 0.0
                     cfg_cv.val_score_excess_cvar99_weight = 0.0
                     cfg_cv.val_score_excess_relu_weight = 0.0
@@ -10348,7 +10190,7 @@ def run_hedgeset_pipeline(
         logger.info("Forecasting cache missing; preprocessing first.")
         preprocess_all(DATA_CFG, force_rebuild=False)
 
-    # Reuse exact-contract chain table and daily state cache from the underlying-only extension.
+    # Reuse exact-contract chain table and daily state cache.
     hedge_chain_cfg = HedgingConfig()
     hedge_chain_cfg.cache_dir = cfg.cache_dir
     hedge_chain_cfg.results_dir = cfg.results_dir
@@ -10383,7 +10225,7 @@ def run_hedgeset_pipeline(
             policy_panels = []
             for variant in cfg.policy_variants:
                 for mode in state_modes:
-                    # If no set-only checkpoint exists, this state mode will be unavailable.
+            # Set-only mode requires a checkpoint.
                     try:
                         _ = HedgeSetEpisodeDataset(ep_path, "train", mode)
                     except Exception as exc:
@@ -10407,8 +10249,7 @@ def run_hedgeset_pipeline(
                 policy_panels.extend(mb_panels)
 
             panel_here = pd.concat([static_panel] + policy_panels, ignore_index=True) if policy_panels else static_panel.copy()
-            # Pairwise bootstrap for tail-risk and turnover claims.  Comparisons
-            # are run within each seed/variant when applicable.
+    # Pairwise bootstrap within each seed and variant.
             for variant in sorted(set(panel_here.get("policy_variant", pd.Series(["full"])).dropna())):
                 amb_variants_loop = {"amb", "ambiguous", "amb_full", "robust", "ambiguity"}
                 modern_comp_models = {"IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet", "QiaoResidual-LS"}
@@ -10424,8 +10265,7 @@ def run_hedgeset_pipeline(
                     if str(variant) in amb_variants:
                         model_a = "AmbHedgeSet-latent"
                         suff = ""
-                        # Compare the ambiguity-aware model against the standard
-                        # full HedgeSet as well as classical and representation baselines.
+            # Compare regime-aware policy with standard and baseline policies.
                         comps = [
                             "HedgeSet-latent", "SmiledDelta", "NoTradeDelta", "LSDeltaVega", "GreedyDeltaVega",
                             "IVGrid-HedgeSet", "NTB-LS", "CVaR-HedgeSet", "QiaoResidual-LS",
@@ -10442,8 +10282,7 @@ def run_hedgeset_pipeline(
                         ]
                     if model_a not in set(sub["model"]):
                         continue
-                    # Additional latent-policy architecture ablations are only
-                    # meaningful when the target model is the full latent policy.
+            # Latent-policy ablations apply to the full latent policy.
                     if variant == "full":
                         comps.extend(["HedgeSet-latent-no_band", "HedgeSet-latent-no_gate", "HedgeSet-latent-no_band_no_gate", "HedgeSet-latent-underlying"])
                     if str(variant) in amb_variants:
@@ -10536,7 +10375,7 @@ def main():
     parser.add_argument("--grid-side-reference", action="store_true",
                         help="Train/export side-information-matched Grid-CNN+Side and Grid-Transformer+Side baselines.")
 
-    # Hedging/control extension.
+    # Hedging controls.
     parser.add_argument("--hedging", action="store_true",
                         help="Run option-implied belief-state deep hedging experiments.")
     parser.add_argument("--hedge-families", type=str, default="atm_call,put25,atm_straddle",
@@ -10569,7 +10408,7 @@ def main():
     parser.add_argument("--hedge-no-terminal-liquidation", action="store_true",
                         help="Do not charge terminal liquidation cost for the remaining hedge position.")
 
-    # QuoteSet-to-HedgeSet extension: variable-size hedge-instrument set policy.
+    # Hedge-set policy arguments.
     parser.add_argument("--hedgeset", action="store_true",
                         help="Run QuoteSet-to-HedgeSet deep hedging with a variable-size candidate hedge instrument set.")
     parser.add_argument("--hedgeset-candidate-rules", type=str,
@@ -10701,9 +10540,7 @@ def main():
                 pv.append("ambiguous")
                 args.hedgeset_policy_variants = ",".join(pv)
         if args.hedgeset_released_suite:
-            # Reported suite should include the liquid candidate-set sweep by default.
-            # Preserve an explicitly custom --hedgeset-candidate-sweeps value,
-            # but upgrade the parser default "main,underlying" to the full suite.
+            # Default candidate sweeps include the liquid hedge set.
             _sweeps_txt = str(args.hedgeset_candidate_sweeps).strip()
             if (not _sweeps_txt) or (_sweeps_txt == "main,underlying"):
                 args.hedgeset_candidate_sweeps = "main,underlying,liquid"
