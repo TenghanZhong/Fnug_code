@@ -371,6 +371,8 @@ def assemble_e1008(
         ivgrid_panel_parts.append(only_models(extra_panel, ["IVGrid-HedgeSet"]))
     ivgrid_metrics = pd.concat(ivgrid_metric_parts, ignore_index=True, sort=False)
     ivgrid_panel = pd.concat(ivgrid_panel_parts, ignore_index=True, sort=False)
+    ivgrid_metrics["checkpoint_selection"] = "best_score"
+    ivgrid_panel["checkpoint_selection"] = "best_score"
 
     qiao_metrics, qiao_panel = read_run(root, resolve_qiao_run(root, qiao_run))
     qiao_metrics = only_models(qiao_metrics, ["QiaoResidual-LS"])
@@ -524,7 +526,8 @@ def main() -> int:
             "# E1008 final analysis manifest",
             "",
             f"- final_run: `{args.final_run}`",
-            f"- final_selection: `{args.final_selection}`",
+            f"- fnug_selection: `{args.final_selection}`",
+            "- ivgrid_selection: `best_score`",
             f"- qiao_run: `{resolve_qiao_run(root, args.qiao_run)}`",
             f"- bootstrap_reps: `{args.n_boot}`",
             f"- combined_metrics_rows: `{len(metrics)}`",
