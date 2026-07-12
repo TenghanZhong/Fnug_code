@@ -16,9 +16,9 @@ DEFAULT_OUTDIR = ROOT / "results" / "analysis"
 
 FNUG_MODEL = "HedgeSet-latent"
 COMPARISONS = [
-    ("LSDeltaVega", "confirmatory_vs_ls"),
-    ("QiaoResidual-LS", "confirmatory_vs_qiao"),
-    ("IVGrid-HedgeSet", "diagnostic_vs_ivgrid"),
+    ("LSDeltaVega", "vs_ls"),
+    ("QiaoResidual-LS", "vs_qiao"),
+    ("IVGrid-HedgeSet", "vs_ivgrid"),
 ]
 
 
@@ -179,7 +179,7 @@ def run_one(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run E1008 paired moving-block bootstrap for primary CVaR95 checks.")
+    parser = argparse.ArgumentParser(description="Run paired moving-block bootstrap comparisons for primary CVaR95.")
     parser.add_argument("--panel", type=Path, default=DEFAULT_PANEL)
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     parser.add_argument("--family", default="atm_call")
@@ -245,7 +245,7 @@ def main() -> int:
         draws.to_csv(draws_path, index=False, compression="gzip")
 
     manifest = {
-        "description": "Paired moving-block bootstrap for primary ATM-call / 2 bps / seed 42 CVaR95 checks.",
+        "description": "Paired moving-block bootstrap comparisons for primary ATM-call / 2 bps / seed 42 CVaR95.",
         "panel": repo_path(panel_path),
         "summary": repo_path(summary_path),
         "draws": repo_path(draws_path),

@@ -1,5 +1,5 @@
 {
-  "run_name": "qiao_ls_m4",
+  "run_name": "qiao_residual_ls",
   "candidate_rules": [
     "underlying",
     "atm_call30",

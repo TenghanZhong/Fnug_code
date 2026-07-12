@@ -1,5 +1,5 @@
 {
-  "description": "Paired moving-block bootstrap for primary ATM-call / 2 bps / seed 42 CVaR95 checks.",
+  "description": "Paired moving-block bootstrap comparisons for primary ATM-call / 2 bps / seed 42 CVaR95.",
   "panel": "results/analysis/e1008_final_combined_episode_panel.csv",
   "summary": "results/analysis/e1008_primary_moving_block_bootstrap.csv",
   "draws": null,
@@ -7,15 +7,15 @@
   "comparisons": [
     {
       "model_b": "LSDeltaVega",
-      "label": "confirmatory_vs_ls"
+      "label": "vs_ls"
     },
     {
       "model_b": "QiaoResidual-LS",
-      "label": "confirmatory_vs_qiao"
+      "label": "vs_qiao"
     },
     {
       "model_b": "IVGrid-HedgeSet",
-      "label": "diagnostic_vs_ivgrid"
+      "label": "vs_ivgrid"
     }
   ],
   "family": "atm_call",

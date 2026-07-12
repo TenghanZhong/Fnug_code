@@ -1,5 +1,5 @@
 {
-  "run_name": "e1008_ablation_no_auxrisk",
+  "run_name": "ablation_no_auxrisk",
   "candidate_rules": [
     "underlying",
     "atm_call30",

@@ -10,14 +10,13 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 
-E1008_RUN = "fnug_e1008_final_fam3_cost3_seed3_1eaa24b3f8"
+E1008_RUN = "fnug_main"
 E1008_SELECTION = "best_feasible_excess_0p008"
-SUPPORTING_MODERN_RUN = "fnug_modern_supporting_fam3_cost3_seed3_m4_1eaa24b3f8"
-IVGRID_FINAL_OBJECTIVE_RUN = "fnug_modern_finalobjective_fam3_cost3_seed3_m4_1eaa24b3f8"
-IVGRID_FINAL_OBJECTIVE_EXTRA_RUNS = ["fnug_modern_finalobjective_straddle_m4_1eaa24b3f8"]
+SUPPORTING_MODERN_RUN = "modern_baselines"
+IVGRID_FINAL_OBJECTIVE_RUN = "modern_baselines"
+IVGRID_FINAL_OBJECTIVE_EXTRA_RUNS: list[str] = []
 QIAO_RUN_CANDIDATES = [
-    "qiao_residual_ls_m4_1eaa24b3f8",
-    "qiao_ls_m4_1eaa24b3f8",
+    "qiao_residual_ls",
 ]
 
 FNUG_MODEL = "HedgeSet-latent"
@@ -32,6 +31,34 @@ COMPARATORS = [
     "NoTradeDelta",
     "GreedyDeltaVega",
 ]
+
+PUBLIC_RUN_LABELS = {
+    FNUG_MODEL: "fnug_main",
+    "NoHedge": "fnug_main",
+    "SmiledDelta": "fnug_main",
+    "NoTradeDelta": "fnug_main",
+    "GreedyDeltaVega": "fnug_main",
+    "LSDeltaVega": "fnug_main",
+    "NTB-LS": "modern_baselines",
+    "CVaR-HedgeSet": "modern_baselines",
+    "QiaoResidual-LS": "qiao_residual_ls",
+    "IVGrid-HedgeSet": "ivgrid_hedgeset",
+}
+
+
+def publicize_metadata(frame: pd.DataFrame) -> pd.DataFrame:
+    """Replace source-directory labels with stable artifact labels."""
+    out = frame.copy()
+    if "candidate_run" in out.columns and "model" in out.columns:
+        labels = out["model"].map(PUBLIC_RUN_LABELS)
+        out.loc[labels.notna(), "candidate_run"] = labels[labels.notna()]
+    if "source_run" in out.columns and "model" in out.columns:
+        ivgrid = out["model"].eq("IVGrid-HedgeSet")
+        families = out.loc[ivgrid, "family"].astype(str).str.replace("atm_", "", regex=False)
+        out.loc[ivgrid, "source_run"] = "ivgrid_" + families
+    return out
+
+
 BOOT_METRICS = [
     "mean_loss",
     "cvar_95",
@@ -59,7 +86,7 @@ def read_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     run_dir = hedgeset_root(root) / run_name
     metrics = read_csv(run_dir / "hedgeset_test_metrics_all.csv")
     panel = read_csv(run_dir / "hedgeset_test_episode_panel_all.csv")
-    return metrics, panel
+    return publicize_metadata(metrics), publicize_metadata(panel)
 
 
 def read_optional_run(root: Path, run_name: str) -> tuple[pd.DataFrame, pd.DataFrame] | None:
@@ -525,10 +552,11 @@ def main() -> int:
         "\n".join([
             "# E1008 final analysis manifest",
             "",
-            f"- final_run: `{args.final_run}`",
+            "- fnug_config: `configs/fnug_main.json`",
+            "- comparator_config: `configs/modern_baselines.json`",
+            "- qiao_config: `configs/qiao_residual_ls.json`",
             f"- fnug_selection: `{args.final_selection}`",
             "- ivgrid_selection: `best_score`",
-            f"- qiao_run: `{resolve_qiao_run(root, args.qiao_run)}`",
             f"- bootstrap_reps: `{args.n_boot}`",
             f"- combined_metrics_rows: `{len(metrics)}`",
             f"- combined_panel_rows: `{len(panel)}`",

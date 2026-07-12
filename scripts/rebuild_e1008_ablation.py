@@ -9,18 +9,36 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINAL_RUN = "fnug_e1008_final_fam3_cost3_seed3_1eaa24b3f8"
+FINAL_RUN = "fnug_main"
 FINAL_SELECTION = "best_feasible_excess_0p008"
 AUDIT_SEEDS = [1, 42, 2026]
 ABLATIONS = {
-    "No factor-neutral constraint": ("e1008_ablation_no_factorneutral_1eaa24b3f8", "best_score"),
-    "No trust gate": ("e1008_ablation_no_trustgate_1eaa24b3f8", FINAL_SELECTION),
-    "No auxiliary risk": ("e1008_ablation_no_auxrisk_1eaa24b3f8", FINAL_SELECTION),
+    "No factor-neutral constraint": ("ablation_no_factorneutral", "best_score"),
+    "No trust gate": ("ablation_no_trustgate", FINAL_SELECTION),
+    "No auxiliary risk": ("ablation_no_auxrisk", FINAL_SELECTION),
 }
 QIAO_RUN_CANDIDATES = [
-    "qiao_residual_ls_m4_1eaa24b3f8",
-    "qiao_ls_m4_1eaa24b3f8",
+    "qiao_residual_ls",
 ]
+
+PUBLIC_RUN_LABELS = {
+    "Full FNUG": "fnug_main",
+    "LS only": "fnug_main",
+    "QiaoResidual-LS": "qiao_residual_ls",
+    "No factor-neutral constraint": "ablation_no_factorneutral",
+    "No trust gate": "ablation_no_trustgate",
+    "No auxiliary risk": "ablation_no_auxrisk",
+}
+
+
+def publicize_metadata(frame: pd.DataFrame) -> pd.DataFrame:
+    """Replace source-directory labels with stable artifact labels."""
+    out = frame.copy()
+    if "candidate_run" in out.columns and "model" in out.columns:
+        labels = out["model"].map(PUBLIC_RUN_LABELS)
+        out.loc[labels.notna(), "candidate_run"] = labels[labels.notna()]
+    return out
+
 
 METRICS = {
     "mean_loss": "loss_norm",
@@ -219,7 +237,7 @@ def main() -> int:
         rows.append(read_selected_metrics(root, run_name, label, selection))
         panels[label] = read_selected_panel(root, run_name, label, selection)
 
-    table = pd.DataFrame(rows)
+    table = publicize_metadata(pd.DataFrame(rows))
     table.to_csv(outdir / "e1008_ablation_table.csv", index=False)
 
     audit_rows: list[pd.Series] = []
@@ -245,7 +263,7 @@ def main() -> int:
             audit_rows.append(read_selected_metrics(root, run_name, label, selection, seed=seed))
             audit_panels[label].append(read_selected_panel(root, run_name, label, selection, seed=seed))
 
-    audit = pd.DataFrame(audit_rows)
+    audit = publicize_metadata(pd.DataFrame(audit_rows))
     audit.to_csv(outdir / "e1008_ablation_seed_audit.csv", index=False)
     summary_metrics = [
         "cvar_95",

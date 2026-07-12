@@ -1,5 +1,5 @@
 {
-  "run_name": "e1008_ablation_no_trustgate",
+  "run_name": "ablation_no_trustgate",
   "candidate_rules": [
     "underlying",
     "atm_call30",

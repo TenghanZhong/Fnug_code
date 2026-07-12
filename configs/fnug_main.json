@@ -1,5 +1,5 @@
 {
-  "run_name": "fnug_e1008_final_fam3_cost3_seed3",
+  "run_name": "fnug_main",
   "candidate_rules": [
     "underlying",
     "atm_call30",

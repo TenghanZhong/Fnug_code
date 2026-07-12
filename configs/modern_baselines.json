@@ -1,5 +1,5 @@
 {
-  "run_name": "fnug_modern_finalobjective_fam3_cost3_seed3_m4",
+  "run_name": "modern_baselines",
   "candidate_rules": [
     "underlying",
     "atm_call30",

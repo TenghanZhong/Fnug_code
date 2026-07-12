@@ -1,5 +1,5 @@
 {
-  "run_name": "e1008_ablation_no_factorneutral",
+  "run_name": "ablation_no_factorneutral",
   "candidate_rules": [
     "underlying",
     "atm_call30",

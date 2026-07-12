@@ -2454,10 +2454,8 @@ def train_stage3(surface_model: FullSurfaceModel, heads: DownstreamHeads, cache_
 
 class SetForecastOnlyModel(nn.Module):
     """
-    Clean ablation: permutation-invariant quote-set encoder + downstream heads
-    trained directly on forecasting loss, with no surface decoder and no surface
-    reconstruction losses. This tests whether surface anchoring adds value beyond
-    quote-set aggregation.
+    Permutation-invariant quote-set encoder with forecasting heads and no
+    surface decoder or reconstruction loss.
     """
     def __init__(self, model_cfg: ModelConfig = MODEL_CFG):
         super().__init__()
@@ -2749,7 +2747,7 @@ class HARModel:
     def __init__(self, use_options: bool = False, serving_time: str = "close_t"):
         """
         serving_time='close_t' means:
-          at anchor date t, we use close-of-t information
+          the forecast at anchor date t uses close-of-t information
           to forecast forward targets defined on t+1, ..., t+h.
 
         This matches:
@@ -3752,13 +3750,11 @@ def validation_regression_score(
     eps: float = 1e-8,
 ) -> float:
     """
-    Unified validation-selection score for regression baselines.
+    Validation-selection score for regression baselines.
 
-    RV5/RV21 use standard positive-domain QLIKE, matching the main risk-sensitive
-    comparison. DSV5 has structural zero windows, so candidate models are selected
-    by MAE rather than by standard/positive-subset QLIKE. This keeps DSV5 model
-    selection aligned with the revised main-reporting rule: DSV5 primary metrics
-    are RMSE/MAE, while floored QLIKE is only a robustness diagnostic.
+    RV5/RV21 use positive-domain QLIKE. DSV5 contains structural zero windows,
+    so models are selected by MAE; floored QLIKE is retained as a sensitivity
+    metric.
     """
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
@@ -3873,11 +3869,8 @@ def save_forecast_prediction_panel(
     pred_map: Dict[str, Dict[str, np.ndarray]],
 ) -> str:
     """
-    Save per-date targets and predictions for diagnostics.
-
-    This output does not change the main forecasting, DM, or surface results. It
-    makes DSV5 zero-window diagnostics and floor-sensitivity checks reproducible
-    from a single panel.
+    Save per-date targets and predictions for DSV5 zero-window and
+    floor-sensitivity analysis.
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
@@ -4316,7 +4309,7 @@ def run_diagnostics(
     diag_iv_failures: bool = False,
     max_rows_per_year: Optional[int] = None,
 ) -> None:
-    """Run diagnostics without changing trained models or outputs."""
+    """Run optional data and evaluation diagnostics."""
     diag_dir = os.path.join(DATA_CFG.results_dir, "diagnostics")
     os.makedirs(diag_dir, exist_ok=True)
 
@@ -5389,12 +5382,9 @@ def aggregate_seed_result_csvs(
     neural_only: bool = True,
 ) -> Optional[str]:
     """
-    Aggregate seed-sensitivity CSVs under root_dir/**/test_results_forecasting.csv.
-
-    By default, only neural specifications are aggregated. This prevents the
-    seed export from being polluted by deterministic baselines such as VIX,
-    ATM-IV, HAR, or GARCH, which are repeatedly written in each seed folder but
-    are not neural seed-sensitivity objects.
+    Aggregate neural seed-sensitivity CSVs under
+    root_dir/**/test_results_forecasting.csv. Deterministic baselines are
+    identical across seed directories and are omitted by default.
     """
     root = Path(root_dir)
     files = sorted(root.glob("**/test_results_forecasting.csv"))
@@ -5675,14 +5665,7 @@ def preprocess_hedging_chains(
     hedge_cfg: HedgingConfig = HedgingConfig(),
     force_rebuild: bool = False,
 ) -> str:
-    """Build a quote-level contract table for hedging episodes.
-
-    The forecasting cache intentionally collapses redundant calls/puts and does
-    not store exact expiration keys.  For hedging, that is not enough: realized
-    PnL must be marked on the same liability contract through time.  This
-    function therefore rereads the raw option files and saves a lightweight
-    contract table with exact date/exdate/strike/cp keys and observed mid marks.
-    """
+    """Build a quote-level contract table with exact contract keys and mid marks."""
     os.makedirs(hedge_cfg.cache_dir, exist_ok=True)
     out_path = os.path.join(hedge_cfg.cache_dir, "hedging_chains.parquet")
     if os.path.exists(out_path) and not force_rebuild:
@@ -7319,7 +7302,7 @@ def _hs_build_one_episode(
             grid_states.append(np.concatenate([grid, side, liab], axis=0).astype(np.float32))
             if setonly_cols:
                 z_set = np.asarray([_safe_float(st.get(c), 0.0) for c in setonly_cols], dtype=np.float32)
-                # Same side and liability conditioning as the proposed latent state.
+                # Match latent-state side and liability conditioning.
                 setonly_states.append(np.concatenate([z_set, side, z_set * side[0], z_set * side[1], liab], axis=0).astype(np.float32))
 
     H = cfg.horizon
@@ -7386,11 +7369,9 @@ def _hs_build_one_episode(
 def _hedgeset_regime_vector(ep: dict) -> np.ndarray:
     """Option-implied regime features used for ambiguity-aware hedging.
 
-    The vector is built from the episode start date only and later standardized
-    using train-split statistics.  It intentionally uses absolute skew and term
-    slope magnitudes, because both steep negative skew and large term-structure
-    dislocations can indicate stressed option-implied regimes.  Quote density is
-    multiplied by -1 so sparse quote coverage contributes positively to stress.
+    The vector uses episode-start features standardized on the training split.
+    Absolute skew and term-slope magnitudes capture stress in either direction;
+    negative quote density makes sparse coverage increase the stress score.
     """
     raw = ep.get("regime_features_raw", {}) or {}
     def val(k: str, default: float = np.nan) -> float:
@@ -7412,10 +7393,8 @@ def _hedgeset_regime_vector(ep: dict) -> np.ndarray:
 def _assign_hedgeset_regimes(episodes: List[dict], cfg: HedgeSetConfig) -> Dict[str, Any]:
     """Assign train-calibrated option-implied regime labels to HedgeSet episodes.
 
-    No test information is used.  Medians, scales, and score quantiles are fit
-    only on training episodes, then applied unchanged to validation and test.
-    This supports ambiguity-aware robust CVaR training/evaluation while keeping
-    validation and test regime labels out of the calibration step.
+    Medians, scales, and score quantiles are fit on training episodes and then
+    applied unchanged to validation and test episodes.
     """
     if len(episodes) == 0:
         return {"regime_bins": int(getattr(cfg, "regime_bins", 3)), "regime_counts": {}}
@@ -7924,8 +7903,7 @@ def _hs_ls_delta_vega_target(
         min_q ||A q - y||_2^2 + q' R q,
     where A contains instrument delta and scaled vega.  The diagonal penalty R
     includes both a numerical ridge and a half-spread penalty, so illiquid option
-    hedges are not selected too aggressively.  This is a substantially stronger
-    classical baseline than the greedy single-option vega hedge.
+    hedges are not selected too aggressively.
     """
     mask_t = batch["inst_mask"][:, t, :]
     delta_inst = batch["inst_delta"][:, t, :]
@@ -7980,7 +7958,7 @@ def _hs_base_target(batch: dict, t: int, q_prev: torch.Tensor, cfg: HedgeSetConf
     if base in {"greedy", "greedy_deltavega", "deltavega"}:
         tmp_cfg = copy.copy(cfg)
         tmp_cfg.current_action_scope = getattr(cfg, "current_action_scope", "full")
-        # reuse the same greedy logic by constructing one-step target here
+        # Construct a one-step target with the greedy hedge rule.
         mask_t = batch["inst_mask"][:, t, :].to(q_prev.device)
         q_new = torch.zeros_like(q_prev)
         vega_inst = batch["inst_vega"][:, t, :].to(q_prev.device)
@@ -9217,17 +9195,12 @@ class QiaoResidualLSAgent(nn.Module):
         q_t = q_t^0 + r_theta(s_t, H_t),
     where q_t^0 is the LSDeltaVega anchor and r_theta is a bounded MLP residual.
 
-    This baseline uses no FNUG-specific residual controls:
-      * factor-neutral residual projection,
-      * global trust gate,
-      * excess-CVaR training,
-      * auxiliary dense risk loss.
-
     Training uses the Qiao-style local squared hedging-error objective generalized
     to the multi-instrument HedgeSet setting:
         (Delta L_t - q_t' Delta P_t)^2,
-    evaluated on historical quote-marked paths. Full-episode CVaR is used for
-    validation checkpoint selection and final reporting.
+    evaluated on historical quote-marked paths. The model omits projection,
+    trust gating, excess-CVaR, and auxiliary losses. Full-episode CVaR is used
+    for validation checkpoint selection and test evaluation.
     """
     def __init__(self, global_dim: int, inst_dim: int, normalizer: DualFeatureNormalizer, cfg: HedgeSetConfig):
         super().__init__()
@@ -9449,12 +9422,7 @@ def qiao_residual_ls_training_loss(agent: QiaoResidualLSAgent, batch: dict, cfg:
 
 
 def _qiao_residual_ls_validation_score(metrics: dict, cfg: HedgeSetConfig) -> float:
-    """Validation selection score for the plain Qiao-style residual baseline.
-
-    Unlike FNUG, this baseline is not selected using excess-risk, trust, or
-    factor-neutral metrics.  This keeps the comparator a plain anchored residual
-    learner while still using validation-only episode risk to select checkpoints.
-    """
+    """Select QiaoResidual-LS checkpoints using validation episode risk."""
     c95 = float(metrics.get("cvar_95", np.inf))
     c99 = float(metrics.get("cvar_99", c95))
     mean = float(metrics.get("mean_loss_norm", 0.0))
@@ -9789,7 +9757,7 @@ def _select_no_trade_delta_band(episodes_path: str, state_mode_for_loader: str, 
 
 
 def evaluate_static_hedgeset_baselines(episodes_path: str, family: str, state_mode_for_loader: str, cost_bps: float, cfg: HedgeSetConfig, out_dir: str, delta_thresholds: Optional[List[float]] = None) -> Tuple[List[dict], pd.DataFrame]:
-    """Evaluate stronger static baselines on the test split.
+    """Evaluate static baselines on the test split.
 
     Includes:
       * NoHedge
@@ -10349,7 +10317,7 @@ def main():
     parser.add_argument("--rebuild", action="store_true", help="Force cache rebuild even if cache exists")
     parser.add_argument("--resume", action="store_true", help="Resume training from last checkpoint")
     parser.add_argument("--set-forecast-only", action="store_true",
-                        help="Run the clean set-encoder-only forecasting ablation.")
+                        help="Run the set-encoder-only forecasting ablation.")
     parser.add_argument("--multi-seed", action="store_true",
                         help="Run multi-seed neural experiments in separate results folders.")
     parser.add_argument("--seeds", type=str, default="1,42,2026",
@@ -10363,7 +10331,7 @@ def main():
     parser.add_argument("--set-only-side-only", action="store_true",
                         help="With --set-forecast-only, run only the side-info version and skip the no-side variant.")
     parser.add_argument("--diagnostics", action="store_true",
-                        help="Run optional diagnostics without changing trained models or main results.")
+                        help="Run optional data and evaluation diagnostics.")
     parser.add_argument("--diag-csv-parquet", action="store_true",
                         help="Compare CSV/Parquet value equivalence for raw data files.")
     parser.add_argument("--diag-dsv5", action="store_true",
@@ -10381,7 +10349,7 @@ def main():
     parser.add_argument("--hedge-families", type=str, default="atm_call,put25,atm_straddle",
                         help="Comma-separated liability families: atm_call,put25,atm_straddle.")
     parser.add_argument("--hedge-state-modes", type=str, default="latent,summary,grid,nosurface",
-                        help="Comma-separated policy state modes. Use latent for the proposed belief state. nosurface is enabled when set_forecast_only_best.pt exists.")
+                        help="Comma-separated policy state modes. latent uses the quote-set state; nosurface requires set_forecast_only_best.pt.")
     parser.add_argument("--hedge-cost-bps-list", type=str, default="1,2,5",
                         help="Comma-separated proportional hedge trading costs in basis points.")
     parser.add_argument("--hedge-horizon", type=int, default=5,
@@ -10500,7 +10468,7 @@ def main():
     parser.add_argument("--hedgeset-trust-gate-temp", type=float, default=1.0,
                         help="Temperature of the global trust gate sigmoid.")
     parser.add_argument("--hedgeset-lambda-trust-l1", type=float, default=0.01,
-                        help="Penalty on average residual trust, encouraging LS fallback unless residual value is earned.")
+                        help="Penalty on the mean scalar trust-gate value.")
     parser.add_argument("--hedgeset-val-feasible-excess-cvar95-max", type=float, default=None,
                         help="Maximum validation excess CVaR95 for the generic feasible checkpoint.")
     parser.add_argument("--hedgeset-val-feasible-excess-cvar95-grid", type=str, default="0.007,0.008,0.009,0.012",

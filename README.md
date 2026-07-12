@@ -5,13 +5,13 @@ This repository contains the public code and derived outputs for
 
 The released main specification is the budgeted FNUG policy selected under a
 validation excess-CVaR95 budget of 0.008. It uses a latent quote-set state, a
-always-active LSDeltaVega anchor, residual scale 0.10, trust gate
+an always-active LSDeltaVega anchor, residual scale 0.10, trust gate
 initialization -1.0, trust penalty 0.003, and factor-neutral residual
 projection.
 
 Raw SPX option quote data and model checkpoints are not redistributed. The
 repository keeps derived analysis tables and figure files needed to reproduce
-the reported result set.
+the included analyses.
 
 ## Contents
 
@@ -20,7 +20,7 @@ the reported result set.
 - `configs/fnug_main.json`: released budgeted FNUG configuration.
 - `configs/ablation_no_factorneutral.json`,
   `configs/ablation_no_trustgate.json`, and
-  `configs/ablation_no_auxrisk.json`: E1008 ablation configurations.
+  `configs/ablation_no_auxrisk.json`: ablation configurations.
 - `configs/modern_baselines.json`, `configs/qiao_residual_ls.json`, and
   `configs/hard_ls_only.json`: comparator configurations.
 - `results/analysis/e1008_final_*.csv`: final combined metrics,
