@@ -793,14 +793,22 @@ class RVTargetBuilder:
         rv21_back = np.full(n, np.nan)
         dsv5_back = np.full(n, np.nan)
 
+        def split_id(date) -> str:
+            year = pd.Timestamp(date).year
+            if year <= self.cfg.train_end:
+                return "train"
+            if year <= self.cfg.val_end:
+                return "val"
+            return "test"
+
         for t in range(n):
-            if t + 1 + 5 <= n:
+            if t + 1 + 5 <= n and split_id(dates[t]) == split_id(dates[t + 5]):
                 r5_fwd = ret[t + 1:t + 1 + 5]
                 if np.all(np.isfinite(r5_fwd)):
                     rv5[t] = np.sqrt(252 / 5 * np.sum(r5_fwd**2))
                     dsv5[t] = np.sqrt(252 / 5 * np.sum(r5_fwd**2 * (r5_fwd < 0)))
 
-            if t + 1 + 21 <= n:
+            if t + 1 + 21 <= n and split_id(dates[t]) == split_id(dates[t + 21]):
                 r21_fwd = ret[t + 1:t + 1 + 21]
                 if np.all(np.isfinite(r21_fwd)):
                     rv21[t] = np.sqrt(252 / 21 * np.sum(r21_fwd**2))
