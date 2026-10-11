@@ -1,0 +1,386 @@
+{
+  "original_code_revision": "dfebfb50410f1d4ca7633ed18e5972e00be15d42",
+  "runs": {
+    "Full FNUG": "budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8",
+    "No factor-neutral constraint": "e1008_ablation_no_factorneutral_1eaa24b3f8",
+    "No trust gate": "e1008_ablation_no_trustgate_1eaa24b3f8",
+    "No auxiliary risk": "e1008_ablation_no_auxrisk_1eaa24b3f8"
+  },
+  "score_terms": {
+    "val_cvar_95": 1.0,
+    "val_cvar_99": 0.25,
+    "val_mean_loss_norm": 0.1,
+    "val_mean_turnover": 0.02,
+    "val_mean_tc_norm": 0.05,
+    "val_excess_cvar_95": 1.0,
+    "val_excess_cvar_99": 0.25,
+    "val_mean_relu_excess_loss_norm": 0.5,
+    "val_mean_residual_factor_l2": 0.1,
+    "val_mean_global_trust": 0.02,
+    "val_worst_regime_cvar_95": 0.25
+  },
+  "min_delta": 1e-05,
+  "checkpoints": [
+    {
+      "model": "Full FNUG",
+      "seed": 1,
+      "epoch": 57,
+      "best_val_score": 0.21776101569337497
+    },
+    {
+      "model": "Full FNUG",
+      "seed": 42,
+      "epoch": 25,
+      "best_val_score": 0.2153778539520347
+    },
+    {
+      "model": "Full FNUG",
+      "seed": 2026,
+      "epoch": 27,
+      "best_val_score": 0.2177816954921253
+    },
+    {
+      "model": "No factor-neutral constraint",
+      "seed": 1,
+      "epoch": 1,
+      "best_val_score": 0.26752242475274485
+    },
+    {
+      "model": "No factor-neutral constraint",
+      "seed": 42,
+      "epoch": 1,
+      "best_val_score": 0.2834315904995686
+    },
+    {
+      "model": "No factor-neutral constraint",
+      "seed": 2026,
+      "epoch": 12,
+      "best_val_score": 0.28828090394112177
+    },
+    {
+      "model": "No trust gate",
+      "seed": 1,
+      "epoch": 83,
+      "best_val_score": 0.21909545735313166
+    },
+    {
+      "model": "No trust gate",
+      "seed": 42,
+      "epoch": 39,
+      "best_val_score": 0.21889640656709722
+    },
+    {
+      "model": "No trust gate",
+      "seed": 2026,
+      "epoch": 56,
+      "best_val_score": 0.21897101689042367
+    },
+    {
+      "model": "No auxiliary risk",
+      "seed": 1,
+      "epoch": 53,
+      "best_val_score": 0.21591907185803694
+    },
+    {
+      "model": "No auxiliary risk",
+      "seed": 42,
+      "epoch": 25,
+      "best_val_score": 0.216431882112317
+    },
+    {
+      "model": "No auxiliary risk",
+      "seed": 2026,
+      "epoch": 26,
+      "best_val_score": 0.21814395583472324
+    }
+  ],
+  "source_files": [
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/run_config.json",
+      "sha256": "585bd50063ef2bcad649c12172d92de68172ce18f76363f83de5003be6c73dd4"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/training_history.csv",
+      "sha256": "c04f2545e537ed04d78d8051fa8628bbdb4556e0732e44ecf5c560ef447576ad"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/best_score_policy.pt",
+      "sha256": "db0de59c778c168e89a0e8f398ad1e6c45321e7f1207ac9bf7b5841d871e7aeb"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel.csv",
+      "sha256": "001399698fc397fd06b62607bec3342e9935f922f0fbe4be10c1a986d61b6186"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_metrics.csv",
+      "sha256": "c599cc815ea0629a6bd365a4648129fa41efa8bd79cfdf0672e392f0971c52ce"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "76d86097d7cb81b6650bcb810a6b8c63997a55678ba5ebfce337a8e8f55f5007"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/training_history.csv",
+      "sha256": "f5b4ea71bffa8dbfe53b1ebc6d84d6b25eb01ba211ba59e3ea4c7b6c03c6d26b"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/best_score_policy.pt",
+      "sha256": "b71a3255ae9cccd48eb717be838a59312b34924bb14de06a2e082cd096aa7c20"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel.csv",
+      "sha256": "bc1ec78ec36d1efdf51e3c4e56d5590005532147f0f3f53a6ee19f7ef36d7c69"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_metrics.csv",
+      "sha256": "85dc81fffc1d9852791ebf94a559ccf2ce798a9c1660ae92024935b0e4a06793"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "0280b6d5c68cb14ada53e8a08a9739276f94bfb807f25f112b8d3dd8b0ab64c0"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/training_history.csv",
+      "sha256": "3f0acc46079a55f51c8e5603c821cfd423c9a6a581fd22f9d3bbe52e3adb756a"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/best_score_policy.pt",
+      "sha256": "4c0d5e61174e1640a57fbab6793db90eea155261dfa4f206756e456b43422761"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel.csv",
+      "sha256": "5f1df8ca4a0295f2a43345db1bf4cc49002235a52303770bceb39f6df8c9c0e9"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_metrics.csv",
+      "sha256": "484980f7994e1341cd5d08348c826f276aedb5d81319f0589b508325ca383ba7"
+    },
+    {
+      "path": "results/hedgeset/budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "f88747eb994bf5fa814af5e398b8af6c8a31b825be57f6117131a18e5da42f78"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/run_config.json",
+      "sha256": "72959c5cd1dd65b001f3d9317de64cc3536d64335106c627b68e4bc61b2f3832"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/training_history.csv",
+      "sha256": "fecf74d7f6e2d1f6a2c4e7f5b0ac20c2bded800c6e8bd69f5d18a91d641808de"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/best_score_policy.pt",
+      "sha256": "900cfe302a5d729242dcb0e83ac94af90ff41fd086aa474cabe1f38159a5a46e"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel.csv",
+      "sha256": "cc93c35a5bfda2106b70dfa3be37fe6c636cc213afadce22572e5cd79384b382"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_metrics.csv",
+      "sha256": "c39b5c11778db9c784ffb2b57cebd35dbbbde8dcbb0f87aad0da226ec417052f"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel.csv",
+      "sha256": "cc93c35a5bfda2106b70dfa3be37fe6c636cc213afadce22572e5cd79384b382"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/training_history.csv",
+      "sha256": "e1a667fa7c5c79c23a0bab62643e82440eaa318e50cc2dd1e01560d00c15e543"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/best_score_policy.pt",
+      "sha256": "dd93c0371c3713a466faf5bbb11009e32ddfbaa55062e1614624d4a9ff0345f7"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel.csv",
+      "sha256": "bcb1fa21cd087f80302eb6adbdb0bc5a5d1f2697303e13109b2e724d83171b90"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_metrics.csv",
+      "sha256": "f437003fe248af32314095635b5c91356625d28bde0436c2c3a9374f0abfe705"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel.csv",
+      "sha256": "bcb1fa21cd087f80302eb6adbdb0bc5a5d1f2697303e13109b2e724d83171b90"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/training_history.csv",
+      "sha256": "27437b4f4d2afe59e694448e044d1bafa43354a5d2bd2e4ff4180c6cd24269e5"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/best_score_policy.pt",
+      "sha256": "a3f0873c6dfca19a093399d3719253dddde7067fd54d3edae0106f208d293aee"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel.csv",
+      "sha256": "f21166ccb64126c46c9d8d4004b7c90bdd4e4ff38775e744ceeb8fd946af3001"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_metrics.csv",
+      "sha256": "2d0afb9b17ad6959030b8681f98acaad750940fbf3ddff133de764d4cb9d45cb"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_factorneutral_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel.csv",
+      "sha256": "f21166ccb64126c46c9d8d4004b7c90bdd4e4ff38775e744ceeb8fd946af3001"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/run_config.json",
+      "sha256": "ccaf617c2fc2cf3ebafbffd7e4505ca53e38d5ff85ce17e2cf848c9ce8f2d452"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/training_history.csv",
+      "sha256": "6dd98f52bbfb656b77f495e33f88fc1faf1846759ed6e9f32ef8859a39553f7b"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/best_score_policy.pt",
+      "sha256": "1fa556bfcd903e3b698659d5a3247a9275f3bab09582d8f66e5db700ed30fc1c"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel.csv",
+      "sha256": "f3b21845290ceab9f1fd9034c6bb9958487e23e140f2a3c91f98a1dea1664d34"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_metrics.csv",
+      "sha256": "69749e9ded669972d9c16337f869886c3f01506a066e8aef1e315f5f6ae9fb21"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "9bb6db17bced8d84949fbd6a9c7327442572e821cb507fa89801c2acf1230168"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/training_history.csv",
+      "sha256": "3fe20c13e9ac4adf811ddffa7a6f7388c85fd0f8f77b5bcce778178e63d65558"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/best_score_policy.pt",
+      "sha256": "854ffe98559f586e7a5bea82901689d8e3e043dbf8cffed24687ca4de95c9511"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel.csv",
+      "sha256": "027b2391c2ff3a668b6f3fbe417779afecd1199897a3b44f90a42e7d582dad70"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_metrics.csv",
+      "sha256": "8d00b772d4d022bf40ed3b7f1e9c46d63ecdb8fac72a70e076731845d0357cbf"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "83528e3d485fec1fb06d655be1db5967dc7bc1ede0084f68adc9d2192ab4c57a"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/training_history.csv",
+      "sha256": "e00af8732615843c396a100cd56531a8be363f2b21f875aaf42ce79b2a2f8171"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/best_score_policy.pt",
+      "sha256": "468f3e0dc6ce325546f7f3f79721077b3fc5c32aac74a8d0870e6fe5ce0cd24a"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel.csv",
+      "sha256": "0d6205484fcf2de73ba44957a31c089cafacc378c8a144869067e8449fa9fc7f"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_metrics.csv",
+      "sha256": "ba0323f6845947be76f7a16c1a009426d39a770ebebeae85c38a9ab6616bb3d6"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_trustgate_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "482fc3cb45f21ec3626947076587bb239e84535e14e9367339c3b270a4bec7b9"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/run_config.json",
+      "sha256": "77f89f621b0f8787884f0c0c4a790f007f240aa43649701f7b0973039355a2cf"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/training_history.csv",
+      "sha256": "73b4b83b48805d58af536da79c25f66d3805a2a6d861fc0a5c0c3d711aff0da1"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/best_score_policy.pt",
+      "sha256": "06b463f5e704cb8f9e1cffea7705575d2388f1ce306bf81bb9589b2f19dfd3dc"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel.csv",
+      "sha256": "713bfeddc827ab918283b152cd2d0aa669ce95ffaf3106bcada47c1e4fd4378d"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_metrics.csv",
+      "sha256": "11f6378e8720ec2547b8a0a2a5adfe0baf2249204deb3a48ac64f510a8dbf25a"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_1/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "88de643c144aea27206800261f8907add1e43ef00e482db8902b9a4e0df858e2"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/training_history.csv",
+      "sha256": "f5675d3efea5d8f861a5eb6313e2aaf5f1c98645d2fed84b65c612526f3cfa12"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/best_score_policy.pt",
+      "sha256": "3c4fd6dd592119bd665901a1dd91aa30a0cd1c087ee0fc1660f285897680a443"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel.csv",
+      "sha256": "e66d7211f8e7e91917bcba04cb935df2353c6f5b7200ba03f8eb03c284acf440"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_metrics.csv",
+      "sha256": "024b00b357ad7dc07a28c9a2019ece38099045d42cd0aba122638d6b0bdcf28d"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_42/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "fc2377a67b12a4b549832136b06164d171eb226c12198277f971a8bc371f7505"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/training_history.csv",
+      "sha256": "c8108bc140840a457cea94c5eeea0fef66d60eba63afb46a45540f101d7c0752"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/best_score_policy.pt",
+      "sha256": "59e295c8bdced736161e69347afc340b5b7e936b52721f8236cad1203b9dc17a"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel.csv",
+      "sha256": "25ac262543f84fb0c26f3061923e20360f49db8d7964108b6b1d44ece6983029"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_metrics.csv",
+      "sha256": "9f73ae8a4714c8caaea90f27a3867a120f19fcb30ce8af02ff309fdaa459976a"
+    },
+    {
+      "path": "results/hedgeset/e1008_ablation_no_auxrisk_1eaa24b3f8/atm_call/cost_2bps/variant_full/scope_full/policy_latent/seed_2026/test_episode_panel_best_feasible_excess_0p008.csv",
+      "sha256": "d143f5abb801336917b1a9130b22c971ae53760033074e458f29f59ddba19764"
+    }
+  ],
+  "released_columns": {
+    "validation": [
+      "epoch",
+      "val_cvar_95",
+      "val_cvar_99",
+      "val_mean_loss_norm",
+      "val_mean_turnover",
+      "val_mean_tc_norm",
+      "val_excess_cvar_95",
+      "val_excess_cvar_99",
+      "val_mean_relu_excess_loss_norm",
+      "val_mean_residual_factor_l2",
+      "val_mean_global_trust",
+      "val_worst_regime_cvar_95",
+      "val_selection_score",
+      "val_mean_abs_residual_delta_exposure",
+      "val_mean_abs_residual_vega_exposure"
+    ],
+    "test": [
+      "start_date",
+      "loss_norm",
+      "base_loss_norm",
+      "excess_loss_norm",
+      "tc_norm",
+      "turnover",
+      "residual_delta_exposure",
+      "residual_vega_exposure",
+      "global_trust_mean"
+    ]
+  },
+  "release": "Validation summaries, selected-model normalized episode losses, and primitive checkpoint metadata; no raw option quotes or model tensors."
+}

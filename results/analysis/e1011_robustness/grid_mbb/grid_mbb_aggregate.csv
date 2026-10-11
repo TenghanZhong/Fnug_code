@@ -1,0 +1,10 @@
+model_b,block_length,statistic,n_cells,n_unique_episode_dates,observed_diff,ci95_low,ci95_high,p_two_sided_centered,p_holm_three_comparators_within_block
+LSDeltaVega,3,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.020083788033358006,-0.03426060908814033,-0.00902132735926855,0.0101,0.0303
+LSDeltaVega,5,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.020083788033358006,-0.034046064119943174,-0.008672827245040121,0.0114,0.0342
+LSDeltaVega,10,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.020083788033358006,-0.03417870047070232,-0.00870681465656794,0.0102,0.030600000000000002
+QiaoResidual-LS,3,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.02103283384410793,-0.04444755738219249,0.014006573281951071,0.1327,0.1888
+QiaoResidual-LS,5,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.02103283384410793,-0.0442587357579973,0.012193835677276804,0.1228,0.1904
+QiaoResidual-LS,10,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.02103283384410793,-0.0466410188865451,0.011514051435457293,0.1454,0.2012
+IVGrid-HedgeSet,3,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.006438440017441601,-0.015207709316772016,0.0006269416185605076,0.0944,0.1888
+IVGrid-HedgeSet,5,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.006438440017441601,-0.01565729389274312,0.0004512923411030541,0.0952,0.1904
+IVGrid-HedgeSet,10,mean of 27 case CVaR95 differences; synchronized calendar blocks,27,133,-0.006438440017441601,-0.015838854716979038,0.0004213646493443114,0.1006,0.2012

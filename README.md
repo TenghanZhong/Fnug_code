@@ -68,6 +68,25 @@ python scripts/rebuild_e1008_ablation.py --root <local-results-root> --outdir re
 The checked-in CSV files under `results/analysis/` are the released derived
 outputs for this artifact.
 
+## Additional Robustness Analyses
+
+The aggregate comparison across 27 settings and the component comparison under
+a common validation selection rule are released under
+[`results/analysis/e1011_robustness/`](results/analysis/e1011_robustness/README.md).
+This directory documents the validation score and fixed weights and includes
+the derived inputs and outputs needed to recompute the two additional tables.
+
+From the repository root:
+
+```bash
+python scripts/run_e1011_grid_mbb.py --validate --run
+python scripts/run_e1011_matched_selection.py
+```
+
+These commands use the released validation summaries and normalized episode
+losses. They do not require raw option quotes or model checkpoints and do not
+retrain models. The original released main results remain unchanged.
+
 ## Raw Data
 
 Raw option-chain data are not redistributed because they are subject to

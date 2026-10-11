@@ -1,0 +1,56 @@
+[
+  {
+    "model": "LSDeltaVega",
+    "block_length": 3,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "LSDeltaVega",
+    "block_length": 5,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "LSDeltaVega",
+    "block_length": 10,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "QiaoResidual-LS",
+    "block_length": 3,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "QiaoResidual-LS",
+    "block_length": 5,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "QiaoResidual-LS",
+    "block_length": 10,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "IVGrid-HedgeSet",
+    "block_length": 3,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "IVGrid-HedgeSet",
+    "block_length": 5,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  },
+  {
+    "model": "IVGrid-HedgeSet",
+    "block_length": 10,
+    "all_10000_draws_match": true,
+    "released_summary_reproduced": true
+  }
+]

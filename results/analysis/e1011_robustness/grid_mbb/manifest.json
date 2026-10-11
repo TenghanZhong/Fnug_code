@@ -1,0 +1,176 @@
+{
+  "code_revision": "dfebfb50410f1d4ca7633ed18e5972e00be15d42",
+  "panel_sha256": "f10e32c4cfa03c5fa3e28ba7bf1d18f75e629c140f40d5c302835ccbb29b4241",
+  "numpy_version": "1.24.4",
+  "pandas_version": "2.0.3",
+  "alpha": 0.95,
+  "n_boot": 10000,
+  "base_rng_seed": 20260622,
+  "block_lengths": [
+    3,
+    5,
+    10
+  ],
+  "main_block_length": 5,
+  "comparisons": [
+    [
+      "LSDeltaVega",
+      "vs_ls"
+    ],
+    [
+      "QiaoResidual-LS",
+      "vs_qiao"
+    ],
+    [
+      "IVGrid-HedgeSet",
+      "vs_ivgrid"
+    ]
+  ],
+  "cells": [
+    [
+      "atm_call",
+      1.0,
+      1
+    ],
+    [
+      "atm_call",
+      1.0,
+      42
+    ],
+    [
+      "atm_call",
+      1.0,
+      2026
+    ],
+    [
+      "atm_call",
+      2.0,
+      1
+    ],
+    [
+      "atm_call",
+      2.0,
+      42
+    ],
+    [
+      "atm_call",
+      2.0,
+      2026
+    ],
+    [
+      "atm_call",
+      5.0,
+      1
+    ],
+    [
+      "atm_call",
+      5.0,
+      42
+    ],
+    [
+      "atm_call",
+      5.0,
+      2026
+    ],
+    [
+      "put25",
+      1.0,
+      1
+    ],
+    [
+      "put25",
+      1.0,
+      42
+    ],
+    [
+      "put25",
+      1.0,
+      2026
+    ],
+    [
+      "put25",
+      2.0,
+      1
+    ],
+    [
+      "put25",
+      2.0,
+      42
+    ],
+    [
+      "put25",
+      2.0,
+      2026
+    ],
+    [
+      "put25",
+      5.0,
+      1
+    ],
+    [
+      "put25",
+      5.0,
+      42
+    ],
+    [
+      "put25",
+      5.0,
+      2026
+    ],
+    [
+      "atm_straddle",
+      1.0,
+      1
+    ],
+    [
+      "atm_straddle",
+      1.0,
+      42
+    ],
+    [
+      "atm_straddle",
+      1.0,
+      2026
+    ],
+    [
+      "atm_straddle",
+      2.0,
+      1
+    ],
+    [
+      "atm_straddle",
+      2.0,
+      42
+    ],
+    [
+      "atm_straddle",
+      2.0,
+      2026
+    ],
+    [
+      "atm_straddle",
+      5.0,
+      1
+    ],
+    [
+      "atm_straddle",
+      5.0,
+      42
+    ],
+    [
+      "atm_straddle",
+      5.0,
+      2026
+    ]
+  ],
+  "n_pairs": 81,
+  "n_episodes_per_pair": 133,
+  "all_pairs_have_exact_common_dates": true,
+  "protocol": "Released overlapping moving blocks; identical indices for both models and all grid cells within each comparison/block; no circular wrapping.",
+  "statistic": "Difference between two recomputed empirical tail means, using released quantile-and-ties definition.",
+  "aggregate": "Equal-weight mean of 27 case differences; synchronized calendar blocks preserve cross-case dependence; seeds are not additional independent episodes.",
+  "multiplicity": "Holm across 81 main-block comparisons; per-comparator 27-test Holm also reported; blocks 3 and 10 are sensitivity analyses.",
+  "selection": "No new model selection, tuning, retraining, or episode changes.",
+  "primary_reproduction": "All 9 released primary summaries and 90000 scalar draws reproduced before grid analysis.",
+  "input_hash_format": "SHA256 of UTF-8 text with LF line endings"
+}

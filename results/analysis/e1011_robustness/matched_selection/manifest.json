@@ -1,0 +1,45 @@
+{
+  "original_code_revision": "dfebfb50410f1d4ca7633ed18e5972e00be15d42",
+  "runs": {
+    "Full FNUG": "budget_replay_E1_fam3_cost3_seed3_1eaa24b3f8",
+    "No factor-neutral constraint": "e1008_ablation_no_factorneutral_1eaa24b3f8",
+    "No trust gate": "e1008_ablation_no_trustgate_1eaa24b3f8",
+    "No auxiliary risk": "e1008_ablation_no_auxrisk_1eaa24b3f8"
+  },
+  "score_terms": {
+    "val_cvar_95": 1.0,
+    "val_cvar_99": 0.25,
+    "val_mean_loss_norm": 0.1,
+    "val_mean_turnover": 0.02,
+    "val_mean_tc_norm": 0.05,
+    "val_excess_cvar_95": 1.0,
+    "val_excess_cvar_99": 0.25,
+    "val_mean_relu_excess_loss_norm": 0.5,
+    "val_mean_residual_factor_l2": 0.1,
+    "val_mean_global_trust": 0.02,
+    "val_worst_regime_cvar_95": 0.25
+  },
+  "min_delta": 1e-05,
+  "input_sha256": {
+    "checkpoint_metadata.json": "1d6fa314c3b11f76ac0cf237bbaa3104bcf0bf34023e270ae3a33890876299b0",
+    "matched_selection_episode_panel.csv": "f2b9b119fcc34b781094a3adede7f21435397fde6346ff265ee3640ba496ee0a",
+    "validation_history.csv": "c73cf6ac1006970c33b9b200d5c94d32bc043e9f612fe5aa71b683d41a16b1ad"
+  },
+  "n_models": 4,
+  "n_seeds": 3,
+  "n_checkpoint_reselections": 12,
+  "n_unique_episode_dates": 133,
+  "n_boot": 10000,
+  "block_lengths": [
+    3,
+    5,
+    10
+  ],
+  "no_retraining": true,
+  "no_new_network_inference": true,
+  "selection": "Original recorded validation score and weights for all models, without feasibility thresholds; best-score update requires improvement greater than 1e-5.",
+  "evaluation": "Selections recomputed from complete released validation summaries, checked against original checkpoint metadata, and matched to saved selected-model episode losses.",
+  "interpretation": "Alternative common-selection robustness check of the same trained variants; changes both final FNUG score and thresholds and does not separate projection from its training exposure penalty.",
+  "inference": "Equal-weight mean of three seed-specific CVaR95 differences; shared date blocks; percentile confidence intervals; centered two-sided p values; Holm across the three component comparisons separately for each block length.",
+  "input_hash_format": "SHA256 of UTF-8 text with LF line endings"
+}

@@ -1,0 +1,10 @@
+model_b,block_length,n_cells,lower_point_estimate,favorable_ci95,unfavorable_ci95,centered_p_lt_005_favorable,favorable_holm_27,favorable_holm_81
+LSDeltaVega,3,27,27,18,0,18,5,0
+LSDeltaVega,5,27,27,18,0,18,6,1
+LSDeltaVega,10,27,27,18,0,18,5,2
+QiaoResidual-LS,3,27,26,12,0,12,3,2
+QiaoResidual-LS,5,27,26,13,0,12,4,1
+QiaoResidual-LS,10,27,26,13,0,13,3,0
+IVGrid-HedgeSet,3,27,22,13,0,11,0,0
+IVGrid-HedgeSet,5,27,22,13,0,12,0,0
+IVGrid-HedgeSet,10,27,22,14,0,12,0,0
