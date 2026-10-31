@@ -4339,7 +4339,7 @@ def run_diagnostics(
         if not os.path.exists(panel_path):
             logger.warning(
                 f"Prediction panel not found at {panel_path}. Run step 4 evaluation first; "
-                "the patched full_evaluation writes this panel automatically."
+                "full_evaluation writes this panel automatically."
             )
         else:
             train_dsv5 = _collect_target_from_cache(cache_path, "train", "dsv5", DATA_CFG)

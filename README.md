@@ -4,7 +4,7 @@ This repository contains the public code and derived outputs for
 **"FNUG: Factor-Neutral Update Gating for Anchored Option Hedging"**.
 
 The released main specification is the budgeted FNUG policy selected under a
-validation excess-CVaR95 budget of 0.008. It uses a latent quote-set state, a
+validation excess-CVaR95 budget of 0.008. It uses a latent quote-set state,
 an always-active LSDeltaVega anchor, residual scale 0.10, trust gate
 initialization -1.0, trust penalty 0.003, and factor-neutral residual
 projection.
